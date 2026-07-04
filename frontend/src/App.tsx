@@ -1,12 +1,18 @@
+import { useState } from "react";
 import "./App.css";
+import AppLayout from "./components/AppLayout";
 import CustomersPage from "./pages/CustomersPage";
+import OrdersPage from "./pages/OrdersPage";
 
 function App() {
+  const [activePage, setActivePage] = useState<"customers" | "orders">(
+    "customers"
+  );
+
   return (
-    <main>
-      <h1>Lavaco Laundry Management System</h1>
-      <CustomersPage />
-    </main>
+    <AppLayout activePage={activePage} onNavigate={setActivePage}>
+      {activePage === "customers" ? <CustomersPage /> : <OrdersPage />}
+    </AppLayout>
   );
 }
 

@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -12,10 +7,109 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ServiceType {
+  COMPLETE_SERVICE
+  WASH_AND_DRY
+  WASH_ONLY
+  DRY_ONLY
+  DRY_AND_FOLD
+  FOLD_ONLY
+  SPIN_ONLY
+}
+
+enum WashType {
+  REGULAR
+  SUPER
+}
+
+enum FulfillmentType {
+  PICKUP
+  DELIVERY
+}
+
+enum PaymentStatus {
+  PAID
+  UNPAID
+}
+
+enum OrderStatus {
+  RECEIVED
+  WASHING
+  DRYING
+  FOLDING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  COMPLETED
+  CANCELLED
+}
+
+enum SoapType {
+  NONE
+  BREEZE
+  ARIEL
+}
+
+enum SoftenerType {
+  NONE
+  SURF
+  DOWNY
+}
+
 model Customer {
-  id       Int      @id @default(autoincrement())
-  name     String
-  phone    String?
-  address  String?
-  createdAt DateTime @default(now()) 
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  address   String?
+  createdAt DateTime @default(now())
+
+  orders Order[]
+}
+
+model Order {
+  id          Int    @id @default(autoincrement())
+  orderNumber String @unique
+
+  // Existing customer OR walk-in customer
+  customerId            Int?
+  walkInCustomerName    String?
+  walkInCustomerPhone   String?
+  walkInCustomerAddress String?
+
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  // Laundry Details
+  basketCount        Int
+  hasMixedWhiteColor Boolean @default(false)
+  instructions       String?
+
+  // Service
+  serviceType ServiceType
+  washType    WashType?
+  dryExtend   Boolean @default(false)
+
+  // Add-ons
+  serviceFee    Float @default(0)
+
+  soap          SoapType      @default(NONE)
+  soapPrice     Float         @default(0)
+
+  softener      SoftenerType  @default(NONE)
+  softenerPrice Float         @default(0)
+
+  // Delivery
+  fulfillmentType FulfillmentType @default(PICKUP)
+  deliveryFee     Float @default(0)
+
+  // Staff
+  receivedBy String?
+  claimedBy  String?
+
+  // Payment
+  totalPrice     Float
+  paymentStatus  PaymentStatus @default(UNPAID)
+
+  // Workflow
+  status OrderStatus @default(RECEIVED)
+
+  createdAt DateTime @default(now())
 }

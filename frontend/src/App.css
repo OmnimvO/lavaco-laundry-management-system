@@ -1,15 +1,74 @@
-main {
-  min-height: 100vh;
-  padding: 32px;
-  background: #f6f7fb;
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
   font-family: Arial, sans-serif;
+  background: #f6f7fb;
+  color: #111827;
 }
 
-h1 {
-  margin-bottom: 24px;
+.app-layout {
+  min-height: 100vh;
+  display: flex;
 }
 
-.customers-page {
+.sidebar {
+  width: 240px;
+  background: #111827;
+  color: white;
+  padding: 24px;
+}
+
+.logo {
+  margin: 0 0 32px;
+}
+
+.sidebar-nav {
+  display: grid;
+  gap: 8px;
+}
+
+.nav-link {
+  border: none;
+  background: transparent;
+  color: #d1d5db;
+  text-align: left;
+  padding: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.nav-link.active,
+.nav-link:hover {
+  background: #374151;
+  color: white;
+}
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  background: white;
+  padding: 20px 32px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.content {
+  padding: 32px;
+}
+
+.customers-page,
+.orders-page {
   background: white;
   padding: 24px;
   border-radius: 12px;
@@ -41,6 +100,38 @@ h1 {
   cursor: pointer;
 }
 
+.secondary-button {
+  border: none;
+  background: #e5e7eb;
+  color: #111827;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+
+.danger-button {
+  border: none;
+  background: #dc2626;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.customer-form {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.customer-form input {
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+}
+
 .customer-table {
   width: 100%;
   border-collapse: collapse;
@@ -58,34 +149,29 @@ h1 {
   font-weight: 600;
 }
 
-.customer-form {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 40px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.modal {
+  background: white;
+  width: 100%;
+  max-width: 900px;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 24px;
-}
-
-.customer-form input {
-  padding: 10px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-}
-
-.danger-button {
-  border: none;
-  background: #dc2626;
-  color: white;
-  padding: 8px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.secondary-button {
-  border: none;
-  background: #e5e7eb;
-  color: #111827;
-  padding: 8px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  margin-right: 8px;
 }
