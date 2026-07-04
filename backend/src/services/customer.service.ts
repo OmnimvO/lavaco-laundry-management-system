@@ -18,4 +18,30 @@ export const customerService = {
       },
     });
   },
+
+  getCustomerById: async (id: number) => {
+    return prisma.customer.findUnique({
+      where: { id },
+    });
+  },
+
+  updateCustomer: async (
+    id: number,
+    data: {
+      name?: string;
+      phone?: string;
+      address?: string;
+    }
+  ) => {
+    return prisma.customer.update({
+      where: { id },
+      data,
+    });
+  },
+
+  deleteCustomer: async (id: number) => {
+    return prisma.customer.delete({
+      where: { id },
+    });
+  },
 };
