@@ -14,17 +14,13 @@ enum ServiceType {
   DRY_ONLY
   DRY_AND_FOLD
   FOLD_ONLY
-  SPIN_ONLY
-}
-
-enum WashType {
-  REGULAR
-  SUPER
 }
 
 enum FulfillmentType {
-  PICKUP
-  DELIVERY
+  NONE
+  PICKUP_ONLY
+  DELIVERY_ONLY
+  PICKUP_AND_DELIVERY
 }
 
 enum PaymentStatus {
@@ -41,18 +37,6 @@ enum OrderStatus {
   OUT_FOR_DELIVERY
   COMPLETED
   CANCELLED
-}
-
-enum SoapType {
-  NONE
-  BREEZE
-  ARIEL
-}
-
-enum SoftenerType {
-  NONE
-  SURF
-  DOWNY
 }
 
 model Customer {
@@ -77,39 +61,51 @@ model Order {
 
   customer Customer? @relation(fields: [customerId], references: [id])
 
-  // Laundry Details
-  basketCount        Int
+  // Laundry weight and load calculation
+  laundryWeight Float
+  loadCount     Int
+
   hasMixedWhiteColor Boolean @default(false)
   instructions       String?
 
-  // Service
-  serviceType ServiceType
-  washType    WashType?
-  dryExtend   Boolean @default(false)
+  // Laundry service
+  serviceType         ServiceType
+  servicePricePerLoad Float
+  serviceSubtotal     Float
 
-  // Add-ons
-  serviceFee    Float @default(0)
+  // Rinse cycles
+  // 2 rinses are included.
+  // 3, 4, or 5 rinses have a flat ₱20 charge.
+  rinseCycles Int   @default(2)
+  rinseFee    Float @default(0)
 
-  soap          SoapType      @default(NONE)
-  soapPrice     Float         @default(0)
+  // Soap / detergent
+  soapQuantity Int   @default(0)
+  soapPrice    Float @default(0)
 
-  softener      SoftenerType  @default(NONE)
-  softenerPrice Float         @default(0)
+  // Fabric softener
+  softenerQuantity Int   @default(0)
+  softenerPrice    Float @default(0)
 
-  // Delivery
-  fulfillmentType FulfillmentType @default(PICKUP)
-  deliveryFee     Float @default(0)
+  // Pickup / delivery
+  fulfillmentType FulfillmentType
+  deliveryFee     Float           @default(0)
 
   // Staff
   receivedBy String?
   claimedBy  String?
 
   // Payment
-  totalPrice     Float
-  paymentStatus  PaymentStatus @default(UNPAID)
+  totalPrice    Float
+  paymentStatus PaymentStatus @default(UNPAID)
 
   // Workflow
   status OrderStatus @default(RECEIVED)
 
   createdAt DateTime @default(now())
+}
+
+model OrderCounter {
+  id        Int @id @default(1)
+  lastValue Int @default(0)
 }

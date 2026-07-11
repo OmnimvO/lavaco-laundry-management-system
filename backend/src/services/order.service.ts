@@ -4,38 +4,105 @@ import {
   OrderStatus,
   PaymentStatus,
   ServiceType,
-  SoapType,
-  SoftenerType,
-  WashType,
 } from "../generated/prisma/client.js";
 
+type CreateOrderData = {
+  customerId?: number | null;
+  walkInCustomerName?: string | null;
+  walkInCustomerPhone?: string | null;
+  walkInCustomerAddress?: string | null;
+
+  laundryWeight: number;
+  loadCount: number;
+
+  hasMixedWhiteColor?: boolean;
+  instructions?: string | null;
+
+  serviceType: ServiceType;
+  servicePricePerLoad: number;
+  serviceSubtotal: number;
+
+  rinseCycles: number;
+  rinseFee: number;
+
+  soapQuantity: number;
+  soapPrice: number;
+
+  softenerQuantity: number;
+  softenerPrice: number;
+
+  fulfillmentType: FulfillmentType;
+  deliveryFee: number;
+
+  receivedBy?: string | null;
+  claimedBy?: string | null;
+
+  totalPrice: number;
+  status?: OrderStatus;
+  paymentStatus?: PaymentStatus;
+};
+
+type UpdateOrderData = {
+  customerId?: number | null;
+  walkInCustomerName?: string | null;
+  walkInCustomerPhone?: string | null;
+  walkInCustomerAddress?: string | null;
+
+  laundryWeight?: number;
+  loadCount?: number;
+
+  hasMixedWhiteColor?: boolean;
+  instructions?: string | null;
+
+  serviceType?: ServiceType;
+  servicePricePerLoad?: number;
+  serviceSubtotal?: number;
+
+  rinseCycles?: number;
+  rinseFee?: number;
+
+  soapQuantity?: number;
+  soapPrice?: number;
+
+  softenerQuantity?: number;
+  softenerPrice?: number;
+
+  fulfillmentType?: FulfillmentType;
+  deliveryFee?: number;
+
+  receivedBy?: string | null;
+  claimedBy?: string | null;
+
+  totalPrice?: number;
+  status?: OrderStatus;
+  paymentStatus?: PaymentStatus;
+};
+
+async function getNextOrderNumber() {
+  const counter = await prisma.orderCounter.upsert({
+    where: {
+      id: 1,
+    },
+    create: {
+      id: 1,
+      lastValue: 1,
+    },
+    update: {
+      lastValue: {
+        increment: 1,
+      },
+    },
+  });
+
+  return `LAV-${String(counter.lastValue).padStart(
+    6,
+    "0"
+  )}`;
+}
+
 export const orderService = {
-  createOrder: async (data: {
-    customerId?: number | null;
-    walkInCustomerName?: string;
-    walkInCustomerPhone?: string;
-    walkInCustomerAddress?: string;
-    basketCount: number;
-    serviceType: ServiceType;
-    washType?: WashType | null;
-    dryExtend?: boolean;
-    serviceFee?: number;
-    soap?: SoapType;
-    soapPrice?: number;
-    softener?: SoftenerType;
-    softenerPrice?: number;
-    fulfillmentType?: FulfillmentType;
-    deliveryFee?: number;
-    hasMixedWhiteColor?: boolean;
-    receivedBy?: string;
-    claimedBy?: string;
-    instructions?: string;
-    totalPrice: number;
-    status?: OrderStatus;
-    paymentStatus?: PaymentStatus;
-  }) => {
-    const orderCount = await prisma.order.count();
-    const orderNumber = `LAV-${String(orderCount + 1).padStart(6, "0")}`;
+  createOrder: async (data: CreateOrderData) => {
+    const orderNumber = await getNextOrderNumber();
 
     return prisma.order.create({
       data: {
@@ -61,7 +128,9 @@ export const orderService = {
 
   getOrderById: async (id: number) => {
     return prisma.order.findUnique({
-      where: { id },
+      where: {
+        id,
+      },
       include: {
         customer: true,
       },
@@ -70,33 +139,12 @@ export const orderService = {
 
   updateOrder: async (
     id: number,
-    data: {
-      customerId?: number | null;
-      walkInCustomerName?: string | null;
-      walkInCustomerPhone?: string | null;
-      walkInCustomerAddress?: string | null;
-      basketCount?: number;
-      serviceType?: ServiceType;
-      washType?: WashType | null;
-      dryExtend?: boolean;
-      serviceFee?: number;
-      soap?: SoapType;
-      soapPrice?: number;
-      softener?: SoftenerType;
-      softenerPrice?: number;
-      fulfillmentType?: FulfillmentType;
-      deliveryFee?: number;
-      hasMixedWhiteColor?: boolean;
-      receivedBy?: string | null;
-      claimedBy?: string | null;
-      instructions?: string | null;
-      totalPrice?: number;
-      status?: OrderStatus;
-      paymentStatus?: PaymentStatus;
-    }
+    data: UpdateOrderData
   ) => {
     return prisma.order.update({
-      where: { id },
+      where: {
+        id,
+      },
       data,
       include: {
         customer: true,
@@ -104,10 +152,17 @@ export const orderService = {
     });
   },
 
-  updateOrderStatus: async (id: number, status: OrderStatus) => {
+  updateOrderStatus: async (
+    id: number,
+    status: OrderStatus
+  ) => {
     return prisma.order.update({
-      where: { id },
-      data: { status },
+      where: {
+        id,
+      },
+      data: {
+        status,
+      },
       include: {
         customer: true,
       },
@@ -116,7 +171,9 @@ export const orderService = {
 
   deleteOrder: async (id: number) => {
     return prisma.order.delete({
-      where: { id },
+      where: {
+        id,
+      },
     });
   },
 };

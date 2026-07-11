@@ -1,21 +1,29 @@
 export const SERVICE_TYPES = [
-  { value: "COMPLETE_SERVICE", label: "Complete Service (Wash, Dry & Fold)" },
-  { value: "WASH_AND_DRY", label: "Wash & Dry" },
-  { value: "WASH_ONLY", label: "Wash Only" },
-  { value: "DRY_ONLY", label: "Dry Only" },
-  { value: "DRY_AND_FOLD", label: "Dry & Fold" },
-  { value: "FOLD_ONLY", label: "Fold Only" },
-  { value: "SPIN_ONLY", label: "Spin Only" },
-];
-
-export const WASH_TYPES = [
-  { value: "REGULAR", label: "Regular Wash" },
-  { value: "SUPER", label: "SuperWash" },
+  { value: "COMPLETE_SERVICE", label: "Complete Service (₱160)" },
+  { value: "WASH_AND_DRY", label: "Wash & Dry (₱140)" },
+  { value: "WASH_ONLY", label: "Wash Only (₱60)" },
+  { value: "DRY_ONLY", label: "Dry Only (₱70)" },
+  { value: "DRY_AND_FOLD", label: "Dry & Fold (₱100)" },
+  { value: "FOLD_ONLY", label: "Fold Only (₱20)" },
 ];
 
 export const FULFILLMENT_TYPES = [
-  { value: "PICKUP", label: "Pickup" },
-  { value: "DELIVERY", label: "Delivery" },
+  { value: "NONE", label: "No Pickup / Delivery (₱0)" },
+  { value: "PICKUP_ONLY", label: "Pickup Only (₱25)" },
+  { value: "DELIVERY_ONLY", label: "Delivery Only (₱25)" },
+  { value: "PICKUP_AND_DELIVERY", label: "Pickup & Delivery (₱50)" },
+];
+
+export const RINSE_CYCLES = [
+  { value: 2, label: "2 Rinses (Included)" },
+  { value: 3, label: "3 Rinses (+₱20)" },
+  { value: 4, label: "4 Rinses (+₱20)" },
+  { value: 5, label: "5 Rinses (+₱20)" },
+];
+
+export const YES_NO_OPTIONS = [
+  { value: true, label: "Yes" },
+  { value: false, label: "No" },
 ];
 
 export const PAYMENT_STATUSES = [
@@ -32,16 +40,4 @@ export const ORDER_STATUSES = [
   { value: "OUT_FOR_DELIVERY", label: "Out for Delivery" },
   { value: "COMPLETED", label: "Completed" },
   { value: "CANCELLED", label: "Cancelled" },
-];
-
-export const SOAP_TYPES = [
-  { value: "NONE", label: "No soap" },
-  { value: "BREEZE", label: "Breeze" },
-  { value: "ARIEL", label: "Ariel" },
-];
-
-export const SOFTENER_TYPES = [
-  { value: "NONE", label: "No softener" },
-  { value: "SURF", label: "Surf" },
-  { value: "DOWNY", label: "Downy" },
 ];

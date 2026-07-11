@@ -1,39 +1,44 @@
 import type { Customer } from "./customer";
 
-export interface Order {
+export type Order = {
   id: number;
   orderNumber: string;
 
   customerId: number | null;
-  walkInCustomerName: string | null;
-  walkInCustomerPhone: string | null;
-  walkInCustomerAddress: string | null;
+  customer?: Customer | null;
 
-  basketCount: number;
+  walkInCustomerName?: string | null;
+  walkInCustomerPhone?: string | null;
+  walkInCustomerAddress?: string | null;
+
+  laundryWeight: number;
+  loadCount: number;
+
+  hasMixedWhiteColor: boolean;
+  instructions?: string | null;
+
   serviceType: string;
-  washType: string | null;
-  dryExtend: boolean;
+  servicePricePerLoad: number;
+  serviceSubtotal: number;
 
-  serviceFee: number;
-  soap: string;
+  rinseCycles: number;
+  rinseFee: number;
+
+  soapQuantity: number;
   soapPrice: number;
-  softener: string;
+
+  softenerQuantity: number;
   softenerPrice: number;
 
   fulfillmentType: string;
   deliveryFee: number;
 
-  hasMixedWhiteColor: boolean;
-
-  receivedBy: string | null;
-  claimedBy: string | null;
-
-  instructions: string | null;
+  receivedBy?: string | null;
+  claimedBy?: string | null;
 
   totalPrice: number;
   paymentStatus: string;
   status: string;
 
   createdAt: string;
-  customer?: Customer | null;
-}
+};

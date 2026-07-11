@@ -6,10 +6,16 @@ import orderRoutes from "./routes/order.routes.js";
 
 const app = express();
 
-app.use(express.json());
 app.use(cors());
+app.use(express.json());
 
-app.use("/customers", customerRoutes);
-app.use("/orders", orderRoutes);
+app.get("/", (_request, response) => {
+  response.json({
+    message: "Lavaco Laundry API is running",
+  });
+});
+
+app.use("/api/customers", customerRoutes);
+app.use("/api/orders", orderRoutes);
 
 export default app;

@@ -1,6 +1,6 @@
 import type { Customer } from "../types/customer";
 
-const API_URL = "http://localhost:3000/customers";
+const API_URL = "http://localhost:3000/api/customers";
 
 export async function getCustomers(): Promise<Customer[]> {
   const response = await fetch(API_URL);

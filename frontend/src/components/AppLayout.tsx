@@ -1,40 +1,89 @@
 import type { ReactNode } from "react";
+import {
+  FaChartPie,
+  FaUsers,
+  FaClipboardList,
+} from "react-icons/fa";
+
+type ActivePage =
+  | "dashboard"
+  | "customers"
+  | "orders";
 
 interface AppLayoutProps {
-  activePage: "customers" | "orders";
-  onNavigate: (page: "customers" | "orders") => void;
+  activePage: ActivePage;
+  onNavigate: (page: ActivePage) => void;
   children: ReactNode;
 }
 
-function AppLayout({ activePage, onNavigate, children }: AppLayoutProps) {
+function AppLayout({
+  activePage,
+  onNavigate,
+  children,
+}: AppLayoutProps) {
   return (
     <div className="app-layout">
       <aside className="sidebar">
-        <h2 className="logo">Lavaco</h2>
+        <h2 className="logo">Lava Co.</h2>
 
         <nav className="sidebar-nav">
           <button
-            className={activePage === "customers" ? "nav-link active" : "nav-link"}
-            onClick={() => onNavigate("customers")}
+            type="button"
+            className={
+              activePage === "dashboard"
+                ? "nav-link active"
+                : "nav-link"
+            }
+            onClick={() =>
+              onNavigate("dashboard")
+            }
           >
-            Customers
+            <FaChartPie />
+            <span>Dashboard</span>
           </button>
 
           <button
-            className={activePage === "orders" ? "nav-link active" : "nav-link"}
-            onClick={() => onNavigate("orders")}
+            type="button"
+            className={
+              activePage === "customers"
+                ? "nav-link active"
+                : "nav-link"
+            }
+            onClick={() =>
+              onNavigate("customers")
+            }
           >
-            Orders
+            <FaUsers />
+            <span>Customers</span>
+          </button>
+
+          <button
+            type="button"
+            className={
+              activePage === "orders"
+                ? "nav-link active"
+                : "nav-link"
+            }
+            onClick={() =>
+              onNavigate("orders")
+            }
+          >
+            <FaClipboardList />
+            <span>Orders</span>
           </button>
         </nav>
       </aside>
 
       <div className="main-area">
         <header className="topbar">
-          <h1>Lavaco Laundry Management System</h1>
+          <h1>
+            Lava Co. Laundry Hub Management System
+          </h1>
         </header>
 
-        <main className="content">{children}</main>
+        <main className="content">
+          {children}
+        </main>
       </div>
     </div>
   );
