@@ -1,84 +1,259 @@
-import type { Request, Response } from "express";
-import { orderService } from "../services/order.service.js";
-import { auditLogService } from "../services/auditLog.service.js";
+import type {
+  Request,
+  Response,
+} from "express";
+
 import {
   AuditAction,
   AuditEntityType,
+  FulfillmentType,
+  OrderStatus,
+  PaymentStatus,
+  ServiceType,
 } from "../generated/prisma/client.js";
 
-const MAX_KG_PER_LOAD = 8;
+import { orderService } from "../services/order.service.js";
+import { auditLogService } from "../services/auditLog.service.js";
 
-const SERVICE_PRICES: Record<string, number> = {
-  WASH_ONLY: 60,
-  DRY_ONLY: 70,
-  FOLD_ONLY: 20,
-  WASH_AND_DRY: 140,
-  DRY_AND_FOLD: 100,
-  COMPLETE_SERVICE: 160,
+const VALID_SERVICE_TYPES =
+  new Set<ServiceType>(
+    Object.values(ServiceType)
+  );
+
+const VALID_FULFILLMENT_TYPES =
+  new Set<FulfillmentType>(
+    Object.values(FulfillmentType)
+  );
+
+const VALID_PAYMENT_STATUSES =
+  new Set<PaymentStatus>(
+    Object.values(PaymentStatus)
+  );
+
+const VALID_ORDER_STATUSES =
+  new Set<OrderStatus>(
+    Object.values(OrderStatus)
+  );
+
+type ShopPricingSettings = {
+  completeServicePrice: number;
+  washAndDryPrice: number;
+  washOnlyPrice: number;
+  dryOnlyPrice: number;
+  dryAndFoldPrice: number;
+  foldOnlyPrice: number;
+
+  extraRinseFee: number;
+
+  soapPrice: number;
+  softenerPrice: number;
+
+  pickupOnlyFee: number;
+  deliveryOnlyFee: number;
+  pickupAndDeliveryFee: number;
+
+  maximumWeightPerLoad: number;
 };
 
-const FULFILLMENT_FEES: Record<string, number> = {
-  NONE: 0,
-  PICKUP_ONLY: 25,
-  DELIVERY_ONLY: 25,
-  PICKUP_AND_DELIVERY: 50,
-};
-
-const VALID_ORDER_STATUSES = new Set([
-  "RECEIVED",
-  "WASHING",
-  "DRYING",
-  "FOLDING",
-  "READY_FOR_PICKUP",
-  "OUT_FOR_DELIVERY",
-  "COMPLETED",
-  "CANCELLED",
-]);
-
-function calculateOrderPricing(data: {
+type PricingInput = {
   laundryWeight: number;
-  serviceType: string;
+  serviceType: ServiceType;
   rinseCycles: number;
   soapQuantity: number;
   softenerQuantity: number;
-  fulfillmentType: string;
-}) {
-  const {
-    laundryWeight,
-    serviceType,
-    rinseCycles,
-    soapQuantity,
-    softenerQuantity,
-    fulfillmentType,
-  } = data;
+  fulfillmentType: FulfillmentType;
+};
+
+function parsePositiveInteger(
+  value:
+    | string
+    | string[]
+    | number
+    | null
+    | undefined
+) {
+  const rawValue = Array.isArray(value)
+    ? value[0]
+    : value;
+
+  const numericValue = Number(rawValue);
+
+  if (
+    !Number.isInteger(numericValue) ||
+    numericValue <= 0
+  ) {
+    return null;
+  }
+
+  return numericValue;
+}
+
+function normalizeOptionalText(
+  value: unknown
+) {
+  if (
+    typeof value !== "string"
+  ) {
+    return null;
+  }
+
+  return value.trim() || null;
+}
+
+function parseBoolean(
+  value: unknown,
+  fallback = false
+) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  return fallback;
+}
+
+function isServiceType(
+  value: unknown
+): value is ServiceType {
+  return (
+    typeof value === "string" &&
+    VALID_SERVICE_TYPES.has(
+      value as ServiceType
+    )
+  );
+}
+
+function isFulfillmentType(
+  value: unknown
+): value is FulfillmentType {
+  return (
+    typeof value === "string" &&
+    VALID_FULFILLMENT_TYPES.has(
+      value as FulfillmentType
+    )
+  );
+}
+
+function isPaymentStatus(
+  value: unknown
+): value is PaymentStatus {
+  return (
+    typeof value === "string" &&
+    VALID_PAYMENT_STATUSES.has(
+      value as PaymentStatus
+    )
+  );
+}
+
+function isOrderStatus(
+  value: unknown
+): value is OrderStatus {
+  return (
+    typeof value === "string" &&
+    VALID_ORDER_STATUSES.has(
+      value as OrderStatus
+    )
+  );
+}
+
+function getServicePriceMap(
+  settings: ShopPricingSettings
+): Record<ServiceType, number> {
+  return {
+    [ServiceType.COMPLETE_SERVICE]:
+      settings.completeServicePrice,
+
+    [ServiceType.WASH_AND_DRY]:
+      settings.washAndDryPrice,
+
+    [ServiceType.WASH_ONLY]:
+      settings.washOnlyPrice,
+
+    [ServiceType.DRY_ONLY]:
+      settings.dryOnlyPrice,
+
+    [ServiceType.DRY_AND_FOLD]:
+      settings.dryAndFoldPrice,
+
+    [ServiceType.FOLD_ONLY]:
+      settings.foldOnlyPrice,
+  };
+}
+
+function getFulfillmentFeeMap(
+  settings: ShopPricingSettings
+): Record<FulfillmentType, number> {
+  return {
+    [FulfillmentType.NONE]: 0,
+
+    [FulfillmentType.PICKUP_ONLY]:
+      settings.pickupOnlyFee,
+
+    [FulfillmentType.DELIVERY_ONLY]:
+      settings.deliveryOnlyFee,
+
+    [FulfillmentType.PICKUP_AND_DELIVERY]:
+      settings.pickupAndDeliveryFee,
+  };
+}
+
+function calculateOrderPricing(
+  data: PricingInput,
+  settings: ShopPricingSettings
+) {
+  if (
+    !Number.isFinite(
+      settings.maximumWeightPerLoad
+    ) ||
+    settings.maximumWeightPerLoad <= 0
+  ) {
+    throw new Error(
+      "Maximum weight per load must be greater than zero"
+    );
+  }
+
+  const servicePrices =
+    getServicePriceMap(settings);
+
+  const fulfillmentFees =
+    getFulfillmentFeeMap(settings);
 
   const loadCount = Math.ceil(
-    laundryWeight / MAX_KG_PER_LOAD
+    data.laundryWeight /
+      settings.maximumWeightPerLoad
   );
 
   const servicePricePerLoad =
-    SERVICE_PRICES[serviceType];
-
-  if (servicePricePerLoad === undefined) {
-    throw new Error("Invalid service type");
-  }
+    servicePrices[data.serviceType];
 
   const serviceSubtotal =
-    servicePricePerLoad * loadCount;
+    servicePricePerLoad *
+    loadCount;
 
-  // Two rinse cycles are included.
-  // Choosing 3, 4, or 5 adds one flat ₱20 charge.
-  const rinseFee = rinseCycles > 2 ? 20 : 0;
+  const rinseFee =
+    data.rinseCycles > 2
+      ? settings.extraRinseFee
+      : 0;
 
-  const soapPrice = soapQuantity * 20;
-  const softenerPrice = softenerQuantity * 15;
+  const soapPrice =
+    data.soapQuantity *
+    settings.soapPrice;
+
+  const softenerPrice =
+    data.softenerQuantity *
+    settings.softenerPrice;
 
   const deliveryFee =
-    FULFILLMENT_FEES[fulfillmentType];
-
-  if (deliveryFee === undefined) {
-    throw new Error("Invalid fulfillment type");
-  }
+    fulfillmentFees[
+      data.fulfillmentType
+    ];
 
   const totalPrice =
     serviceSubtotal +
@@ -100,14 +275,22 @@ function calculateOrderPricing(data: {
 }
 
 function validateOrderInput(data: {
-  customerId?: number | string | null;
-  walkInCustomerName?: string;
+  customerId?:
+    | number
+    | string
+    | null;
+
+  walkInCustomerName?:
+    | string
+    | null;
+
   laundryWeight: number;
   soapQuantity: number;
   softenerQuantity: number;
-  serviceType: string;
+
+  serviceType: unknown;
   rinseCycles: number;
-  fulfillmentType: string;
+  fulfillmentType: unknown;
 }) {
   if (
     !data.customerId &&
@@ -120,149 +303,194 @@ function validateOrderInput(data: {
   }
 
   if (
-    !Number.isFinite(data.laundryWeight) ||
-    data.laundryWeight <= 0
+    data.customerId !== null &&
+    data.customerId !== undefined &&
+    data.customerId !== "" &&
+    !parsePositiveInteger(
+      data.customerId
+    )
   ) {
-    return "Laundry weight must be greater than 0";
+    return "Invalid customer ID";
   }
 
   if (
-    SERVICE_PRICES[data.serviceType] === undefined
+    !Number.isFinite(
+      data.laundryWeight
+    ) ||
+    data.laundryWeight <= 0
+  ) {
+    return (
+      "Laundry weight must be greater than 0"
+    );
+  }
+
+  if (
+    !isServiceType(
+      data.serviceType
+    )
   ) {
     return "Invalid service type";
   }
 
   if (
-    !Number.isInteger(data.rinseCycles) ||
+    !Number.isInteger(
+      data.rinseCycles
+    ) ||
     data.rinseCycles < 2 ||
     data.rinseCycles > 5
   ) {
-    return "Rinse cycles must be between 2 and 5";
+    return (
+      "Rinse cycles must be between 2 and 5"
+    );
   }
 
   if (
-    FULFILLMENT_FEES[data.fulfillmentType] ===
-    undefined
+    !isFulfillmentType(
+      data.fulfillmentType
+    )
   ) {
-    return "Invalid fulfillment type";
+    return (
+      "Invalid fulfillment type"
+    );
   }
 
   if (
-    !Number.isInteger(data.soapQuantity) ||
+    !Number.isInteger(
+      data.soapQuantity
+    ) ||
     data.soapQuantity < 0
   ) {
-    return "Soap quantity must be a whole number of 0 or greater";
+    return (
+      "Soap quantity must be a whole number of 0 or greater"
+    );
   }
 
   if (
-    !Number.isInteger(data.softenerQuantity) ||
+    !Number.isInteger(
+      data.softenerQuantity
+    ) ||
     data.softenerQuantity < 0
   ) {
-    return "Softener quantity must be a whole number of 0 or greater";
+    return (
+      "Softener quantity must be a whole number of 0 or greater"
+    );
   }
 
   return null;
 }
 
 function requiresDelivery(
-  fulfillmentType: string
+  fulfillmentType: FulfillmentType
 ) {
   return (
-    fulfillmentType === "DELIVERY_ONLY" ||
-    fulfillmentType === "PICKUP_AND_DELIVERY"
+    fulfillmentType ===
+      FulfillmentType.DELIVERY_ONLY ||
+    fulfillmentType ===
+      FulfillmentType.PICKUP_AND_DELIVERY
   );
 }
 
 function getAllowedStatuses(
-  currentStatus: string,
-  fulfillmentType: string
-) {
+  currentStatus: OrderStatus,
+  fulfillmentType: FulfillmentType
+): OrderStatus[] {
   switch (currentStatus) {
-    case "RECEIVED":
+    case OrderStatus.RECEIVED:
       return [
-        "RECEIVED",
-        "WASHING",
-        "CANCELLED",
+        OrderStatus.RECEIVED,
+        OrderStatus.WASHING,
+        OrderStatus.CANCELLED,
       ];
 
-    case "WASHING":
+    case OrderStatus.WASHING:
       return [
-        "WASHING",
-        "DRYING",
-        "CANCELLED",
+        OrderStatus.WASHING,
+        OrderStatus.DRYING,
+        OrderStatus.CANCELLED,
       ];
 
-    case "DRYING":
+    case OrderStatus.DRYING:
       return [
-        "DRYING",
-        "FOLDING",
-        "CANCELLED",
+        OrderStatus.DRYING,
+        OrderStatus.FOLDING,
+        OrderStatus.CANCELLED,
       ];
 
-    case "FOLDING":
-      if (requiresDelivery(fulfillmentType)) {
+    case OrderStatus.FOLDING:
+      if (
+        requiresDelivery(
+          fulfillmentType
+        )
+      ) {
         return [
-          "FOLDING",
-          "OUT_FOR_DELIVERY",
-          "CANCELLED",
+          OrderStatus.FOLDING,
+          OrderStatus.OUT_FOR_DELIVERY,
+          OrderStatus.CANCELLED,
         ];
       }
 
       return [
-        "FOLDING",
-        "READY_FOR_PICKUP",
-        "CANCELLED",
+        OrderStatus.FOLDING,
+        OrderStatus.READY_FOR_PICKUP,
+        OrderStatus.CANCELLED,
       ];
 
-    case "READY_FOR_PICKUP":
+    case OrderStatus.READY_FOR_PICKUP:
       return [
-        "READY_FOR_PICKUP",
-        "COMPLETED",
-        "CANCELLED",
+        OrderStatus.READY_FOR_PICKUP,
+        OrderStatus.COMPLETED,
+        OrderStatus.CANCELLED,
       ];
 
-    case "OUT_FOR_DELIVERY":
+    case OrderStatus.OUT_FOR_DELIVERY:
       return [
-        "OUT_FOR_DELIVERY",
-        "COMPLETED",
-        "CANCELLED",
+        OrderStatus.OUT_FOR_DELIVERY,
+        OrderStatus.COMPLETED,
+        OrderStatus.CANCELLED,
       ];
 
-    case "COMPLETED":
-      return ["COMPLETED"];
+    case OrderStatus.COMPLETED:
+      return [
+        OrderStatus.COMPLETED,
+      ];
 
-    case "CANCELLED":
-      return ["CANCELLED"];
-
-    default:
-      return [];
+    case OrderStatus.CANCELLED:
+      return [
+        OrderStatus.CANCELLED,
+      ];
   }
 }
 
-function validateStatusTransition(data: {
-  currentStatus: string;
-  nextStatus: string;
-  fulfillmentType: string;
-}) {
-  const {
-    currentStatus,
-    nextStatus,
-    fulfillmentType,
-  } = data;
-
-  if (!VALID_ORDER_STATUSES.has(nextStatus)) {
+function validateStatusTransition(
+  data: {
+    currentStatus: OrderStatus;
+    nextStatus: unknown;
+    fulfillmentType: FulfillmentType;
+  }
+) {
+  if (
+    !isOrderStatus(
+      data.nextStatus
+    )
+  ) {
     return "Invalid order status";
   }
 
-  const allowedStatuses = getAllowedStatuses(
-    currentStatus,
-    fulfillmentType
-  );
+  const allowedStatuses =
+    getAllowedStatuses(
+      data.currentStatus,
+      data.fulfillmentType
+    );
 
-  if (!allowedStatuses.includes(nextStatus)) {
+  if (
+    !allowedStatuses.includes(
+      data.nextStatus
+    )
+  ) {
     return (
       `Invalid status transition from ` +
-      `${currentStatus} to ${nextStatus}`
+      `${data.currentStatus} to ` +
+      `${data.nextStatus}`
     );
   }
 
@@ -288,20 +516,17 @@ export const orderController = {
         soapQuantity = 0,
         softenerQuantity = 0,
 
-        fulfillmentType = "NONE",
+        fulfillmentType =
+          FulfillmentType.NONE,
 
         hasMixedWhiteColor = false,
         instructions,
         receivedBy,
         claimedBy,
 
-        paymentStatus = "UNPAID",
+        paymentStatus =
+          PaymentStatus.UNPAID,
       } = req.body;
-
-      const paidAt =
-        paymentStatus === "PAID"
-          ? new Date()
-          : null;
 
       const numericLaundryWeight =
         Number(laundryWeight);
@@ -321,8 +546,10 @@ export const orderController = {
           walkInCustomerName,
           laundryWeight:
             numericLaundryWeight,
-          soapQuantity: numericSoapQuantity,
-          softenerQuantity: numericSoftenerQuantity,
+          soapQuantity:
+            numericSoapQuantity,
+          softenerQuantity:
+            numericSoftenerQuantity,
           serviceType,
           rinseCycles:
             numericRinseCycles,
@@ -335,16 +562,47 @@ export const orderController = {
         });
       }
 
-      const pricing = calculateOrderPricing({
-        laundryWeight:
-          numericLaundryWeight,
-        serviceType,
-        rinseCycles:
-          numericRinseCycles,
-        soapQuantity: numericSoapQuantity,
-        softenerQuantity: numericSoftenerQuantity,
-        fulfillmentType,
-      });
+      if (
+        !isPaymentStatus(
+          paymentStatus
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid payment status",
+        });
+      }
+
+      const settings =
+        await orderService.getShopSettings();
+
+      const pricing =
+        calculateOrderPricing(
+          {
+            laundryWeight:
+              numericLaundryWeight,
+
+            serviceType,
+
+            rinseCycles:
+              numericRinseCycles,
+
+            soapQuantity:
+              numericSoapQuantity,
+
+            softenerQuantity:
+              numericSoftenerQuantity,
+
+            fulfillmentType,
+          },
+          settings
+        );
+
+      const paidAt =
+        paymentStatus ===
+        PaymentStatus.PAID
+          ? new Date()
+          : null;
 
       const order =
         await orderService.createOrder({
@@ -353,16 +611,19 @@ export const orderController = {
             : null,
 
           walkInCustomerName:
-            walkInCustomerName?.trim() ||
-            null,
+            normalizeOptionalText(
+              walkInCustomerName
+            ),
 
           walkInCustomerPhone:
-            walkInCustomerPhone?.trim() ||
-            null,
+            normalizeOptionalText(
+              walkInCustomerPhone
+            ),
 
           walkInCustomerAddress:
-            walkInCustomerAddress?.trim() ||
-            null,
+            normalizeOptionalText(
+              walkInCustomerAddress
+            ),
 
           laundryWeight:
             numericLaundryWeight,
@@ -371,10 +632,14 @@ export const orderController = {
             pricing.loadCount,
 
           hasMixedWhiteColor:
-            Boolean(hasMixedWhiteColor),
+            parseBoolean(
+              hasMixedWhiteColor
+            ),
 
           instructions:
-            instructions?.trim() || null,
+            normalizeOptionalText(
+              instructions
+            ),
 
           serviceType,
 
@@ -390,11 +655,17 @@ export const orderController = {
           rinseFee:
             pricing.rinseFee,
 
-          soapQuantity: numericSoapQuantity,
-          soapPrice: pricing.soapPrice,
+          soapQuantity:
+            numericSoapQuantity,
 
-          softenerQuantity: numericSoftenerQuantity,
-          softenerPrice: pricing.softenerPrice,
+          soapPrice:
+            pricing.soapPrice,
+
+          softenerQuantity:
+            numericSoftenerQuantity,
+
+          softenerPrice:
+            pricing.softenerPrice,
 
           fulfillmentType,
 
@@ -402,50 +673,81 @@ export const orderController = {
             pricing.deliveryFee,
 
           receivedBy:
-            receivedBy?.trim() || null,
+            normalizeOptionalText(
+              receivedBy
+            ),
 
           claimedBy:
-            claimedBy?.trim() || null,
+            normalizeOptionalText(
+              claimedBy
+            ),
 
           totalPrice:
             pricing.totalPrice,
 
-          // Every new order must begin here.
-          status: "RECEIVED",
+          status:
+            OrderStatus.RECEIVED,
 
           paymentStatus,
           paidAt,
         });
 
-      await auditLogService.recordAuditLogSafely({
-          action: AuditAction.CREATE,
-          entityType: AuditEntityType.ORDER,
+      await auditLogService
+        .recordAuditLogSafely({
+          action:
+            AuditAction.CREATE,
+
+          entityType:
+            AuditEntityType.ORDER,
 
           entityId: order.id,
-          entityName: order.orderNumber,
+
+          entityName:
+            order.orderNumber,
 
           description:
             `Order ${order.orderNumber} was created.`,
 
           performedBy:
-            order.receivedBy || "System",
+            order.receivedBy ||
+            "System",
 
           newData: {
-            orderNumber: order.orderNumber,
-            customerId: order.customerId,
+            orderNumber:
+              order.orderNumber,
+
+            customerId:
+              order.customerId,
+
             walkInCustomerName:
               order.walkInCustomerName,
-            laundryWeight: order.laundryWeight,
-            loadCount: order.loadCount,
-            serviceType: order.serviceType,
-            totalPrice: order.totalPrice,
+
+            laundryWeight:
+              order.laundryWeight,
+
+            loadCount:
+              order.loadCount,
+
+            serviceType:
+              order.serviceType,
+
+            servicePricePerLoad:
+              order.servicePricePerLoad,
+
+            totalPrice:
+              order.totalPrice,
+
             paymentStatus:
               order.paymentStatus,
-            status: order.status,
-          },
-      });
 
-      return res.status(201).json(order);
+            status:
+              order.status,
+          },
+        });
+
+      return res
+        .status(201)
+        .json(order);
     } catch (error) {
       console.error(
         "Create order error:",
@@ -479,7 +781,8 @@ export const orderController = {
       );
 
       return res.status(500).json({
-        message: "Failed to get orders",
+        message:
+          "Failed to get orders",
       });
     }
   },
@@ -489,23 +792,27 @@ export const orderController = {
     res: Response
   ) => {
     try {
-      const id = Number(req.params.id);
+      const id =
+        parsePositiveInteger(
+          req.params.id
+        );
 
-      if (
-        !Number.isInteger(id) ||
-        id <= 0
-      ) {
+      if (!id) {
         return res.status(400).json({
-          message: "Invalid order ID",
+          message:
+            "Invalid order ID",
         });
       }
 
       const order =
-        await orderService.getOrderById(id);
+        await orderService.getOrderById(
+          id
+        );
 
       if (!order) {
         return res.status(404).json({
-          message: "Order not found",
+          message:
+            "Order not found",
         });
       }
 
@@ -517,7 +824,8 @@ export const orderController = {
       );
 
       return res.status(500).json({
-        message: "Failed to get order",
+        message:
+          "Failed to get order",
       });
     }
   },
@@ -527,73 +835,99 @@ export const orderController = {
     res: Response
   ) => {
     try {
-      const id = Number(req.params.id);
+      const id =
+        parsePositiveInteger(
+          req.params.id
+        );
 
-      if (
-        !Number.isInteger(id) ||
-        id <= 0
-      ) {
+      if (!id) {
         return res.status(400).json({
-          message: "Invalid order ID",
+          message:
+            "Invalid order ID",
         });
       }
 
       const existingOrder =
-        await orderService.getOrderById(id);
+        await orderService.getOrderById(
+          id
+        );
 
       if (!existingOrder) {
         return res.status(404).json({
-          message: "Order not found",
+          message:
+            "Order not found",
         });
       }
 
       const customerId =
-        req.body.customerId !== undefined
+        req.body.customerId !==
+        undefined
           ? req.body.customerId
           : existingOrder.customerId;
 
       const walkInCustomerName =
-        req.body.walkInCustomerName !== undefined
-          ? req.body.walkInCustomerName
-          : existingOrder.walkInCustomerName;
+        req.body
+          .walkInCustomerName !==
+        undefined
+          ? req.body
+              .walkInCustomerName
+          : existingOrder
+              .walkInCustomerName;
 
       const walkInCustomerPhone =
-        req.body.walkInCustomerPhone !== undefined
-          ? req.body.walkInCustomerPhone
-          : existingOrder.walkInCustomerPhone;
+        req.body
+          .walkInCustomerPhone !==
+        undefined
+          ? req.body
+              .walkInCustomerPhone
+          : existingOrder
+              .walkInCustomerPhone;
 
       const walkInCustomerAddress =
-        req.body.walkInCustomerAddress !== undefined
-          ? req.body.walkInCustomerAddress
-          : existingOrder.walkInCustomerAddress;
+        req.body
+          .walkInCustomerAddress !==
+        undefined
+          ? req.body
+              .walkInCustomerAddress
+          : existingOrder
+              .walkInCustomerAddress;
 
-      const laundryWeight = Number(
-        req.body.laundryWeight ??
-          existingOrder.laundryWeight
-      );
+      const laundryWeight =
+        Number(
+          req.body.laundryWeight ??
+            existingOrder
+              .laundryWeight
+        );
 
       const serviceType =
         req.body.serviceType ??
         existingOrder.serviceType;
 
-      const rinseCycles = Number(
-        req.body.rinseCycles ??
-          existingOrder.rinseCycles
-      );
+      const rinseCycles =
+        Number(
+          req.body.rinseCycles ??
+            existingOrder
+              .rinseCycles
+        );
 
-      const soapQuantity = Number(
-        req.body.soapQuantity ??
-          existingOrder.soapQuantity
-      );
+      const soapQuantity =
+        Number(
+          req.body.soapQuantity ??
+            existingOrder
+              .soapQuantity
+        );
 
-      const softenerQuantity = Number(
-        req.body.softenerQuantity ??
-          existingOrder.softenerQuantity
-      );
+      const softenerQuantity =
+        Number(
+          req.body.softenerQuantity ??
+            existingOrder
+              .softenerQuantity
+        );
 
       const fulfillmentType =
         req.body.fulfillmentType ??
-        existingOrder.fulfillmentType;
+        existingOrder
+          .fulfillmentType;
 
       const nextStatus =
         req.body.status ??
@@ -601,18 +935,19 @@ export const orderController = {
 
       const nextPaymentStatus =
         req.body.paymentStatus ??
-        existingOrder.paymentStatus;
-
-      const paidAt =
-        nextPaymentStatus === "PAID"
-          ? existingOrder.paidAt ?? new Date()
-          : null;
+        existingOrder
+          .paymentStatus;
 
       const validationError =
         validateOrderInput({
           customerId,
+
           walkInCustomerName:
-            walkInCustomerName ?? undefined,
+            typeof walkInCustomerName ===
+            "string"
+              ? walkInCustomerName
+              : null,
+
           laundryWeight,
           soapQuantity,
           softenerQuantity,
@@ -624,6 +959,31 @@ export const orderController = {
       if (validationError) {
         return res.status(400).json({
           message: validationError,
+        });
+      }
+
+      if (
+        !isPaymentStatus(
+          nextPaymentStatus
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid payment status",
+        });
+      }
+
+      if (
+        !isServiceType(
+          serviceType
+        ) ||
+        !isFulfillmentType(
+          fulfillmentType
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid order pricing options",
         });
       }
 
@@ -643,15 +1003,39 @@ export const orderController = {
         });
       }
 
-      const pricing =
-        calculateOrderPricing({
-          laundryWeight,
-          serviceType,
-          rinseCycles,
-          soapQuantity,
-          softenerQuantity,
-          fulfillmentType,
+      if (
+        !isOrderStatus(
+          nextStatus
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid order status",
         });
+      }
+
+      const settings =
+        await orderService.getShopSettings();
+
+      const pricing =
+        calculateOrderPricing(
+          {
+            laundryWeight,
+            serviceType,
+            rinseCycles,
+            soapQuantity,
+            softenerQuantity,
+            fulfillmentType,
+          },
+          settings
+        );
+
+      const paidAt =
+        nextPaymentStatus ===
+        PaymentStatus.PAID
+          ? existingOrder.paidAt ??
+            new Date()
+          : null;
 
       const order =
         await orderService.updateOrder(
@@ -662,16 +1046,19 @@ export const orderController = {
               : null,
 
             walkInCustomerName:
-              walkInCustomerName?.trim() ||
-              null,
+              normalizeOptionalText(
+                walkInCustomerName
+              ),
 
             walkInCustomerPhone:
-              walkInCustomerPhone?.trim() ||
-              null,
+              normalizeOptionalText(
+                walkInCustomerPhone
+              ),
 
             walkInCustomerAddress:
-              walkInCustomerAddress?.trim() ||
-              null,
+              normalizeOptionalText(
+                walkInCustomerAddress
+              ),
 
             laundryWeight,
 
@@ -682,8 +1069,10 @@ export const orderController = {
               req.body
                 .hasMixedWhiteColor !==
               undefined
-                ? Boolean(
+                ? parseBoolean(
                     req.body
+                      .hasMixedWhiteColor,
+                    existingOrder
                       .hasMixedWhiteColor
                   )
                 : existingOrder
@@ -692,9 +1081,12 @@ export const orderController = {
             instructions:
               req.body.instructions !==
               undefined
-                ? req.body.instructions
-                    ?.trim() || null
-                : existingOrder.instructions,
+                ? normalizeOptionalText(
+                    req.body
+                      .instructions
+                  )
+                : existingOrder
+                    .instructions,
 
             serviceType,
 
@@ -710,10 +1102,14 @@ export const orderController = {
               pricing.rinseFee,
 
             soapQuantity,
-            soapPrice: pricing.soapPrice,
+
+            soapPrice:
+              pricing.soapPrice,
 
             softenerQuantity,
-            softenerPrice: pricing.softenerPrice,
+
+            softenerPrice:
+              pricing.softenerPrice,
 
             fulfillmentType,
 
@@ -723,36 +1119,47 @@ export const orderController = {
             receivedBy:
               req.body.receivedBy !==
               undefined
-                ? req.body.receivedBy
-                    ?.trim() || null
-                : existingOrder.receivedBy,
+                ? normalizeOptionalText(
+                    req.body
+                      .receivedBy
+                  )
+                : existingOrder
+                    .receivedBy,
 
             claimedBy:
               req.body.claimedBy !==
               undefined
-                ? req.body.claimedBy
-                    ?.trim() || null
-                : existingOrder.claimedBy,
+                ? normalizeOptionalText(
+                    req.body.claimedBy
+                  )
+                : existingOrder
+                    .claimedBy,
 
             totalPrice:
               pricing.totalPrice,
 
             status: nextStatus,
 
-            paymentStatus: nextPaymentStatus,
+            paymentStatus:
+              nextPaymentStatus,
+
             paidAt,
           }
         );
 
       const statusChanged =
-        existingOrder.status !== order.status;
+        existingOrder.status !==
+        order.status;
 
       const paymentChanged =
-        existingOrder.paymentStatus !==
+        existingOrder
+          .paymentStatus !==
         order.paymentStatus;
 
-      let auditAction: AuditAction =
-      AuditAction.UPDATE;
+      let auditAction:
+        AuditAction =
+        AuditAction.UPDATE;
+
       let description =
         `Order ${order.orderNumber} was updated.`;
 
@@ -774,108 +1181,133 @@ export const orderController = {
           `to ${order.status}.`;
       }
 
-      await auditLogService.recordAuditLogSafely({
-        action: auditAction,
-        entityType: AuditEntityType.ORDER,
+      await auditLogService
+        .recordAuditLogSafely({
+          action: auditAction,
 
-        entityId: order.id,
-        entityName: order.orderNumber,
+          entityType:
+            AuditEntityType.ORDER,
 
-        description,
+          entityId: order.id,
 
-        performedBy:
-          order.receivedBy ||
-          existingOrder.receivedBy ||
-          "System",
+          entityName:
+            order.orderNumber,
 
-        previousData: {
-          customerId:
-            existingOrder.customerId,
+          description,
 
-          walkInCustomerName:
-            existingOrder.walkInCustomerName,
+          performedBy:
+            order.receivedBy ||
+            existingOrder.receivedBy ||
+            "System",
 
-          laundryWeight:
-            existingOrder.laundryWeight,
+          previousData: {
+            customerId:
+              existingOrder
+                .customerId,
 
-          loadCount:
-            existingOrder.loadCount,
+            walkInCustomerName:
+              existingOrder
+                .walkInCustomerName,
 
-          serviceType:
-            existingOrder.serviceType,
+            laundryWeight:
+              existingOrder
+                .laundryWeight,
 
-          rinseCycles:
-            existingOrder.rinseCycles,
+            loadCount:
+              existingOrder
+                .loadCount,
 
-          soapQuantity:
-            existingOrder.soapQuantity,
+            serviceType:
+              existingOrder
+                .serviceType,
 
-          softenerQuantity:
-            existingOrder.softenerQuantity,
+            servicePricePerLoad:
+              existingOrder
+                .servicePricePerLoad,
 
-          fulfillmentType:
-            existingOrder.fulfillmentType,
+            rinseCycles:
+              existingOrder
+                .rinseCycles,
 
-          totalPrice:
-            existingOrder.totalPrice,
+            soapQuantity:
+              existingOrder
+                .soapQuantity,
 
-          paymentStatus:
-            existingOrder.paymentStatus,
+            softenerQuantity:
+              existingOrder
+                .softenerQuantity,
 
-          status:
-            existingOrder.status,
+            fulfillmentType:
+              existingOrder
+                .fulfillmentType,
 
-          receivedBy:
-            existingOrder.receivedBy,
+            totalPrice:
+              existingOrder
+                .totalPrice,
 
-          claimedBy:
-            existingOrder.claimedBy,
-        },
+            paymentStatus:
+              existingOrder
+                .paymentStatus,
 
-        newData: {
-          customerId:
-            order.customerId,
+            status:
+              existingOrder.status,
 
-          walkInCustomerName:
-            order.walkInCustomerName,
+            receivedBy:
+              existingOrder
+                .receivedBy,
 
-          laundryWeight:
-            order.laundryWeight,
+            claimedBy:
+              existingOrder
+                .claimedBy,
+          },
 
-          loadCount:
-            order.loadCount,
+          newData: {
+            customerId:
+              order.customerId,
 
-          serviceType:
-            order.serviceType,
+            walkInCustomerName:
+              order.walkInCustomerName,
 
-          rinseCycles:
-            order.rinseCycles,
+            laundryWeight:
+              order.laundryWeight,
 
-          soapQuantity:
-            order.soapQuantity,
+            loadCount:
+              order.loadCount,
 
-          softenerQuantity:
-            order.softenerQuantity,
+            serviceType:
+              order.serviceType,
 
-          fulfillmentType:
-            order.fulfillmentType,
+            servicePricePerLoad:
+              order.servicePricePerLoad,
 
-          totalPrice:
-            order.totalPrice,
+            rinseCycles:
+              order.rinseCycles,
 
-          paymentStatus:
-            order.paymentStatus,
+            soapQuantity:
+              order.soapQuantity,
 
-          status:
-            order.status,
+            softenerQuantity:
+              order.softenerQuantity,
 
-          receivedBy:
-            order.receivedBy,
+            fulfillmentType:
+              order.fulfillmentType,
 
-          claimedBy:
-            order.claimedBy,
-        },
-      });
+            totalPrice:
+              order.totalPrice,
+
+            paymentStatus:
+              order.paymentStatus,
+
+            status:
+              order.status,
+
+            receivedBy:
+              order.receivedBy,
+
+            claimedBy:
+              order.claimedBy,
+          },
+        });
 
       return res.json(order);
     } catch (error) {
@@ -900,30 +1332,37 @@ export const orderController = {
     res: Response
   ) => {
     try {
-      const id = Number(req.params.id);
-      const { status } = req.body;
+      const id =
+        parsePositiveInteger(
+          req.params.id
+        );
 
-      if (
-        !Number.isInteger(id) ||
-        id <= 0
-      ) {
+      const { status } =
+        req.body;
+
+      if (!id) {
         return res.status(400).json({
-          message: "Invalid order ID",
+          message:
+            "Invalid order ID",
         });
       }
 
       if (!status) {
         return res.status(400).json({
-          message: "Status is required",
+          message:
+            "Status is required",
         });
       }
 
       const existingOrder =
-        await orderService.getOrderById(id);
+        await orderService.getOrderById(
+          id
+        );
 
       if (!existingOrder) {
         return res.status(404).json({
-          message: "Order not found",
+          message:
+            "Order not found",
         });
       }
 
@@ -935,7 +1374,8 @@ export const orderController = {
           nextStatus: status,
 
           fulfillmentType:
-            existingOrder.fulfillmentType,
+            existingOrder
+              .fulfillmentType,
         });
 
       if (statusError) {
@@ -944,41 +1384,54 @@ export const orderController = {
         });
       }
 
+      if (
+        !isOrderStatus(status)
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid order status",
+        });
+      }
+
       const order =
-        await orderService.updateOrderStatus(
-          id,
-          status
-        );
+        await orderService
+          .updateOrderStatus(
+            id,
+            status
+          );
 
-      await auditLogService.recordAuditLogSafely({
-        action:
-          AuditAction.STATUS_CHANGE,
+      await auditLogService
+        .recordAuditLogSafely({
+          action:
+            AuditAction.STATUS_CHANGE,
 
-        entityType:
-          AuditEntityType.ORDER,
+          entityType:
+            AuditEntityType.ORDER,
 
-        entityId: order.id,
-        entityName: order.orderNumber,
+          entityId: order.id,
 
-        description:
-          `Order status for ${order.orderNumber} ` +
-          `changed from ${existingOrder.status} ` +
-          `to ${order.status}.`,
+          entityName:
+            order.orderNumber,
 
-        performedBy:
-          order.receivedBy ||
-          existingOrder.receivedBy ||
-          "System",
+          description:
+            `Order status for ${order.orderNumber} ` +
+            `changed from ${existingOrder.status} ` +
+            `to ${order.status}.`,
 
-        previousData: {
-          status:
-            existingOrder.status,
-        },
+          performedBy:
+            order.receivedBy ||
+            existingOrder.receivedBy ||
+            "System",
 
-        newData: {
-          status: order.status,
-        },
-      });
+          previousData: {
+            status:
+              existingOrder.status,
+          },
+
+          newData: {
+            status: order.status,
+          },
+        });
 
       return res.json(order);
     } catch (error) {
@@ -1003,71 +1456,90 @@ export const orderController = {
     res: Response
   ) => {
     try {
-      const id = Number(req.params.id);
+      const id =
+        parsePositiveInteger(
+          req.params.id
+        );
 
-      if (
-        !Number.isInteger(id) ||
-        id <= 0
-      ) {
+      if (!id) {
         return res.status(400).json({
-          message: "Invalid order ID",
+          message:
+            "Invalid order ID",
         });
       }
 
       const existingOrder =
-        await orderService.getOrderById(id);
+        await orderService.getOrderById(
+          id
+        );
 
       if (!existingOrder) {
         return res.status(404).json({
-          message: "Order not found",
+          message:
+            "Order not found",
         });
       }
 
-      await orderService.deleteOrder(id);
+      await orderService.deleteOrder(
+        id
+      );
 
-      await auditLogService.recordAuditLogSafely({
-        action: AuditAction.DELETE,
-        entityType: AuditEntityType.ORDER,
+      await auditLogService
+        .recordAuditLogSafely({
+          action:
+            AuditAction.DELETE,
 
-        entityId:
-          existingOrder.id,
+          entityType:
+            AuditEntityType.ORDER,
 
-        entityName:
-          existingOrder.orderNumber,
+          entityId:
+            existingOrder.id,
 
-        description:
-          `Order ${existingOrder.orderNumber} was deleted.`,
+          entityName:
+            existingOrder
+              .orderNumber,
 
-        performedBy:
-          existingOrder.receivedBy ||
-          "System",
+          description:
+            `Order ${existingOrder.orderNumber} was deleted.`,
 
-        previousData: {
-          orderNumber:
-            existingOrder.orderNumber,
+          performedBy:
+            existingOrder
+              .receivedBy ||
+            "System",
 
-          customerId:
-            existingOrder.customerId,
+          previousData: {
+            orderNumber:
+              existingOrder
+                .orderNumber,
 
-          walkInCustomerName:
-            existingOrder.walkInCustomerName,
+            customerId:
+              existingOrder
+                .customerId,
 
-          laundryWeight:
-            existingOrder.laundryWeight,
+            walkInCustomerName:
+              existingOrder
+                .walkInCustomerName,
 
-          serviceType:
-            existingOrder.serviceType,
+            laundryWeight:
+              existingOrder
+                .laundryWeight,
 
-          totalPrice:
-            existingOrder.totalPrice,
+            serviceType:
+              existingOrder
+                .serviceType,
 
-          paymentStatus:
-            existingOrder.paymentStatus,
+            totalPrice:
+              existingOrder
+                .totalPrice,
 
-          status:
-            existingOrder.status,
-        },
-      });
+            paymentStatus:
+              existingOrder
+                .paymentStatus,
+
+            status:
+              existingOrder.status,
+          },
+        });
 
       return res.json({
         message:
@@ -1080,7 +1552,8 @@ export const orderController = {
       );
 
       return res.status(500).json({
-        message: "Failed to delete order",
+        message:
+          "Failed to delete order",
       });
     }
   },

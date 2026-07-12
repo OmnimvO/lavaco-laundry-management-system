@@ -10,13 +10,17 @@
 
     "moduleResolution": "NodeNext",
 
-    "types": ["node"],
+    "types": [
+      "node",
+      "express"
+    ],
 
     "skipLibCheck": true
   },
 
   "include": [
-    "src",
+    "src/**/*.ts",
+    "src/**/*.d.ts",
     "prisma.config.ts"
   ]
 }

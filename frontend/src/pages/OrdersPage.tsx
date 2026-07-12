@@ -165,11 +165,18 @@ function OrdersPage() {
   }, []);
 
   async function handleCreateOrder(
-    data: Parameters<typeof createOrder>[0]
+    data: unknown
   ) {
+    const orderPayload =
+      data as Parameters<
+        typeof createOrder
+      >[0];
+
     try {
       const createdOrder =
-        await createOrder(data);
+        await createOrder(
+          orderPayload
+        );
 
       await loadData();
 
@@ -193,17 +200,22 @@ function OrdersPage() {
   }
 
   async function handleUpdateOrder(
-    data: Parameters<typeof updateOrder>[1]
+    data: unknown
   ) {
     if (!selectedOrder) {
       return;
     }
 
+    const orderPayload =
+      data as Parameters<
+        typeof updateOrder
+      >[1];
+
     try {
       const updatedOrder =
         await updateOrder(
           selectedOrder.id,
-          data
+          orderPayload
         );
 
       await loadData();
