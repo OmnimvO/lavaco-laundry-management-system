@@ -8,9 +8,11 @@ import {
   RINSE_CYCLES,
   SERVICE_TYPES,
 } from "../constants/order";
+import type { Employee } from "../types/employee";
 
 type OrderFormProps = {
   customers: Customer[];
+  employees: Employee[];
   selectedOrder?: Order | null;
   onSubmit: (data: any) => void | Promise<void>;
 };
@@ -116,6 +118,7 @@ const initialFormData: OrderFormData = {
 
 function OrderForm({
   customers,
+  employees,
   selectedOrder,
   onSubmit,
 }: OrderFormProps) {
@@ -187,6 +190,27 @@ function OrderForm({
         selectedOrder.status ?? "RECEIVED",
     });
   }, [selectedOrder]);
+
+  const activeEmployees = useMemo(
+    () =>
+      employees
+        .filter(
+          (employee) =>
+            employee.status === "ACTIVE"
+        )
+        .sort((first, second) => {
+          const firstName =
+            `${first.firstName} ${first.lastName}`;
+
+          const secondName =
+            `${second.firstName} ${second.lastName}`;
+
+          return firstName.localeCompare(
+            secondName
+          );
+        }),
+    [employees]
+  );
 
   const pricing = useMemo(() => {
     const laundryWeight =
@@ -599,7 +623,7 @@ function OrderForm({
             </div>
           </section>
 
-          <section className="form-section form-section laundry-details-section">
+          <section className="form-section laundry-details-section">
             <h3>Laundry Details</h3>
 
             <div className="form-grid">
@@ -673,13 +697,48 @@ function OrderForm({
                   Received By
                 </label>
 
-                <input
+                <select
                   id="receivedBy"
                   name="receivedBy"
                   value={formData.receivedBy}
                   onChange={handleChange}
-                  placeholder="Laundry staff name"
-                />
+                >
+                  <option value="">
+                    Select employee
+                  </option>
+
+                  {formData.receivedBy &&
+                    !activeEmployees.some(
+                      (employee) =>
+                        `${employee.firstName} ${employee.lastName}` ===
+                        formData.receivedBy
+                    ) && (
+                      <option value={formData.receivedBy}>
+                        {formData.receivedBy} — Existing Record
+                      </option>
+                    )}
+
+                  {activeEmployees.map((employee) => {
+                    const fullName =
+                      `${employee.firstName} ${employee.lastName}`;
+
+                    return (
+                      <option
+                        key={employee.id}
+                        value={fullName}
+                      >
+                        {fullName}
+                        {" — "}
+                        {employee.position
+                          .replaceAll("_", " ")
+                          .toLowerCase()
+                          .replace(/\b\w/g, (letter) =>
+                            letter.toUpperCase()
+                          )}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
 
               <div className="form-group">
@@ -1033,118 +1092,143 @@ function OrderForm({
 
         {/* Third column */}
         <aside className="summary-column">
-          <section className="price-summary-section">
-            <h3>Order Summary</h3>
+        <section className="price-summary-section">
+          <h3>Order Summary</h3>
 
-            <div className="price-summary-list">
-              <div className="price-summary-row">
-                <span>
-                  Service ({pricing.loadCount} load
-                  {pricing.loadCount === 1
-                    ? ""
-                    : "s"}{" "}
-                  × ₱
-                  {pricing.servicePricePerLoad.toFixed(
-                    2
-                  )}
-                  )
-                </span>
-
-                <strong>
-                  ₱
-                  {pricing.serviceSubtotal.toFixed(
-                    2
-                  )}
-                </strong>
-              </div>
-
-              <div className="price-summary-row">
-                <span>
-                  Rinse Cycles (
-                  {formData.rinseCycles})
-                </span>
-
-                <strong>
-                  ₱{pricing.rinseFee.toFixed(2)}
-                </strong>
-              </div>
-
-              <div className="price-summary-row">
-                <span>
-                  Soap / Detergent
-                  <small className="summary-item-detail">
-                    {formData.soapQuantity} pack
-                    {formData.soapQuantity === 1
-                      ? ""
-                      : "s"}{" "}
-                    × ₱
-                    {SOAP_PRICE_PER_PACK.toFixed(2)}
-                  </small>
-                </span>
-
-                <strong>
-                  ₱{pricing.soapPrice.toFixed(2)}
-                </strong>
-              </div>
-
-              <div className="price-summary-row">
-                <span>
-                  Fabric Softener
-                  <small className="summary-item-detail">
-                    {formData.softenerQuantity} pack
-                    {formData.softenerQuantity === 1
-                      ? ""
-                      : "s"}{" "}
-                    × ₱
-                    {SOFTENER_PRICE_PER_PACK.toFixed(
-                      2
-                    )}
-                  </small>
-                </span>
-
-                <strong>
-                  ₱
-                  {pricing.softenerPrice.toFixed(
-                    2
-                  )}
-                </strong>
-              </div>
-
-              <div className="price-summary-row">
-                <span>Pickup / Delivery</span>
-
-                <strong>
-                  ₱
-                  {pricing.deliveryFee.toFixed(
-                    2
-                  )}
-                </strong>
-              </div>
+          <div className="summary-overview">
+            <div className="summary-overview-item">
+              <span>Weight</span>
+              <strong>
+                {Number(formData.laundryWeight || 0).toFixed(1)} kg
+              </strong>
             </div>
 
-            <div className="total-section">
-              <span>Total Amount</span>
+            <div className="summary-overview-item">
+              <span>Loads</span>
+              <strong>{pricing.loadCount}</strong>
+            </div>
 
+            <div className="summary-overview-item summary-overview-total">
+              <span>Total</span>
               <strong>
                 ₱{pricing.totalPrice.toFixed(2)}
               </strong>
             </div>
-          </section>
-
-          <div className="form-actions summary-actions">
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={isSubmitting}
-            >
-              {isSubmitting
-                ? "Saving..."
-                : selectedOrder
-                ? "Update Order"
-                : "Create Order"}
-            </button>
           </div>
-        </aside>
+
+          <div className="price-summary-list">
+            <div className="price-summary-row">
+              <div className="summary-row-description">
+                <span>
+                  {SERVICE_TYPES.find(
+                    (service) =>
+                      service.value === formData.serviceType
+                  )?.label ?? formData.serviceType}
+                </span>
+
+                <small>
+                  {pricing.loadCount} load
+                  {pricing.loadCount === 1 ? "" : "s"} × ₱
+                  {pricing.servicePricePerLoad.toFixed(2)}
+                </small>
+              </div>
+
+              <strong>
+                ₱{pricing.serviceSubtotal.toFixed(2)}
+              </strong>
+            </div>
+
+            <div className="price-summary-row">
+              <div className="summary-row-description">
+                <span>Extra Rinse</span>
+
+                <small>
+                  {formData.rinseCycles} rinse cycles
+                  {formData.rinseCycles > 2
+                    ? " — flat additional charge"
+                    : " — included"}
+                </small>
+              </div>
+
+              <strong>
+                ₱{pricing.rinseFee.toFixed(2)}
+              </strong>
+            </div>
+
+            <div className="price-summary-row">
+              <div className="summary-row-description">
+                <span>Soap / Detergent</span>
+
+                <small>
+                  {formData.soapQuantity} pack
+                  {formData.soapQuantity === 1 ? "" : "s"} × ₱
+                  {SOAP_PRICE_PER_PACK.toFixed(2)}
+                </small>
+              </div>
+
+              <strong>
+                ₱{pricing.soapPrice.toFixed(2)}
+              </strong>
+            </div>
+
+            <div className="price-summary-row">
+              <div className="summary-row-description">
+                <span>Fabric Softener</span>
+
+                <small>
+                  {formData.softenerQuantity} pack
+                  {formData.softenerQuantity === 1 ? "" : "s"} × ₱
+                  {SOFTENER_PRICE_PER_PACK.toFixed(2)}
+                </small>
+              </div>
+
+              <strong>
+                ₱{pricing.softenerPrice.toFixed(2)}
+              </strong>
+            </div>
+
+            <div className="price-summary-row">
+              <div className="summary-row-description">
+                <span>
+                  {FULFILLMENT_TYPES.find(
+                    (fulfillment) =>
+                      fulfillment.value ===
+                      formData.fulfillmentType
+                  )?.label ?? "Pickup / Delivery"}
+                </span>
+
+                <small>Fulfillment fee</small>
+              </div>
+
+              <strong>
+                ₱{pricing.deliveryFee.toFixed(2)}
+              </strong>
+            </div>
+          </div>
+
+          <div className="total-section">
+            <span>Total Amount</span>
+
+            <strong>
+              ₱{pricing.totalPrice.toFixed(2)}
+            </strong>
+          </div>
+        </section>
+
+        <div className="form-actions summary-actions">
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={isSubmitting}
+          >
+            {isSubmitting
+              ? "Saving..."
+              : selectedOrder
+              ? "Update Order"
+              : "Create Order"}
+          </button>
+        </div>
+      </aside>
       </div>
     </form>
   );

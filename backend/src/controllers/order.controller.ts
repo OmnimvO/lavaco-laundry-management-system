@@ -1,5 +1,10 @@
 import type { Request, Response } from "express";
 import { orderService } from "../services/order.service.js";
+import { auditLogService } from "../services/auditLog.service.js";
+import {
+  AuditAction,
+  AuditEntityType,
+} from "../generated/prisma/client.js";
 
 const MAX_KG_PER_LOAD = 8;
 
@@ -143,8 +148,8 @@ function validateOrderInput(data: {
   }
 
   if (
-  !Number.isInteger(data.soapQuantity) ||
-  data.soapQuantity < 0
+    !Number.isInteger(data.soapQuantity) ||
+    data.soapQuantity < 0
   ) {
     return "Soap quantity must be a whole number of 0 or greater";
   }
@@ -293,6 +298,11 @@ export const orderController = {
         paymentStatus = "UNPAID",
       } = req.body;
 
+      const paidAt =
+        paymentStatus === "PAID"
+          ? new Date()
+          : null;
+
       const numericLaundryWeight =
         Number(laundryWeight);
 
@@ -300,10 +310,10 @@ export const orderController = {
         Number(rinseCycles);
 
       const numericSoapQuantity =
-      Number(soapQuantity);
+        Number(soapQuantity);
 
       const numericSoftenerQuantity =
-      Number(softenerQuantity);
+        Number(softenerQuantity);
 
       const validationError =
         validateOrderInput({
@@ -404,7 +414,36 @@ export const orderController = {
           status: "RECEIVED",
 
           paymentStatus,
+          paidAt,
         });
+
+      await auditLogService.recordAuditLogSafely({
+          action: AuditAction.CREATE,
+          entityType: AuditEntityType.ORDER,
+
+          entityId: order.id,
+          entityName: order.orderNumber,
+
+          description:
+            `Order ${order.orderNumber} was created.`,
+
+          performedBy:
+            order.receivedBy || "System",
+
+          newData: {
+            orderNumber: order.orderNumber,
+            customerId: order.customerId,
+            walkInCustomerName:
+              order.walkInCustomerName,
+            laundryWeight: order.laundryWeight,
+            loadCount: order.loadCount,
+            serviceType: order.serviceType,
+            totalPrice: order.totalPrice,
+            paymentStatus:
+              order.paymentStatus,
+            status: order.status,
+          },
+      });
 
       return res.status(201).json(order);
     } catch (error) {
@@ -560,6 +599,15 @@ export const orderController = {
         req.body.status ??
         existingOrder.status;
 
+      const nextPaymentStatus =
+        req.body.paymentStatus ??
+        existingOrder.paymentStatus;
+
+      const paidAt =
+        nextPaymentStatus === "PAID"
+          ? existingOrder.paidAt ?? new Date()
+          : null;
+
       const validationError =
         validateOrderInput({
           customerId,
@@ -691,11 +739,143 @@ export const orderController = {
 
             status: nextStatus,
 
-            paymentStatus:
-              req.body.paymentStatus ??
-              existingOrder.paymentStatus,
+            paymentStatus: nextPaymentStatus,
+            paidAt,
           }
         );
+
+      const statusChanged =
+        existingOrder.status !== order.status;
+
+      const paymentChanged =
+        existingOrder.paymentStatus !==
+        order.paymentStatus;
+
+      let auditAction: AuditAction =
+      AuditAction.UPDATE;
+      let description =
+        `Order ${order.orderNumber} was updated.`;
+
+      if (paymentChanged) {
+        auditAction =
+          AuditAction.PAYMENT_CHANGE;
+
+        description =
+          `Payment status for ${order.orderNumber} ` +
+          `changed from ${existingOrder.paymentStatus} ` +
+          `to ${order.paymentStatus}.`;
+      } else if (statusChanged) {
+        auditAction =
+          AuditAction.STATUS_CHANGE;
+
+        description =
+          `Order status for ${order.orderNumber} ` +
+          `changed from ${existingOrder.status} ` +
+          `to ${order.status}.`;
+      }
+
+      await auditLogService.recordAuditLogSafely({
+        action: auditAction,
+        entityType: AuditEntityType.ORDER,
+
+        entityId: order.id,
+        entityName: order.orderNumber,
+
+        description,
+
+        performedBy:
+          order.receivedBy ||
+          existingOrder.receivedBy ||
+          "System",
+
+        previousData: {
+          customerId:
+            existingOrder.customerId,
+
+          walkInCustomerName:
+            existingOrder.walkInCustomerName,
+
+          laundryWeight:
+            existingOrder.laundryWeight,
+
+          loadCount:
+            existingOrder.loadCount,
+
+          serviceType:
+            existingOrder.serviceType,
+
+          rinseCycles:
+            existingOrder.rinseCycles,
+
+          soapQuantity:
+            existingOrder.soapQuantity,
+
+          softenerQuantity:
+            existingOrder.softenerQuantity,
+
+          fulfillmentType:
+            existingOrder.fulfillmentType,
+
+          totalPrice:
+            existingOrder.totalPrice,
+
+          paymentStatus:
+            existingOrder.paymentStatus,
+
+          status:
+            existingOrder.status,
+
+          receivedBy:
+            existingOrder.receivedBy,
+
+          claimedBy:
+            existingOrder.claimedBy,
+        },
+
+        newData: {
+          customerId:
+            order.customerId,
+
+          walkInCustomerName:
+            order.walkInCustomerName,
+
+          laundryWeight:
+            order.laundryWeight,
+
+          loadCount:
+            order.loadCount,
+
+          serviceType:
+            order.serviceType,
+
+          rinseCycles:
+            order.rinseCycles,
+
+          soapQuantity:
+            order.soapQuantity,
+
+          softenerQuantity:
+            order.softenerQuantity,
+
+          fulfillmentType:
+            order.fulfillmentType,
+
+          totalPrice:
+            order.totalPrice,
+
+          paymentStatus:
+            order.paymentStatus,
+
+          status:
+            order.status,
+
+          receivedBy:
+            order.receivedBy,
+
+          claimedBy:
+            order.claimedBy,
+        },
+      });
 
       return res.json(order);
     } catch (error) {
@@ -770,6 +950,36 @@ export const orderController = {
           status
         );
 
+      await auditLogService.recordAuditLogSafely({
+        action:
+          AuditAction.STATUS_CHANGE,
+
+        entityType:
+          AuditEntityType.ORDER,
+
+        entityId: order.id,
+        entityName: order.orderNumber,
+
+        description:
+          `Order status for ${order.orderNumber} ` +
+          `changed from ${existingOrder.status} ` +
+          `to ${order.status}.`,
+
+        performedBy:
+          order.receivedBy ||
+          existingOrder.receivedBy ||
+          "System",
+
+        previousData: {
+          status:
+            existingOrder.status,
+        },
+
+        newData: {
+          status: order.status,
+        },
+      });
+
       return res.json(order);
     } catch (error) {
       console.error(
@@ -814,6 +1024,50 @@ export const orderController = {
       }
 
       await orderService.deleteOrder(id);
+
+      await auditLogService.recordAuditLogSafely({
+        action: AuditAction.DELETE,
+        entityType: AuditEntityType.ORDER,
+
+        entityId:
+          existingOrder.id,
+
+        entityName:
+          existingOrder.orderNumber,
+
+        description:
+          `Order ${existingOrder.orderNumber} was deleted.`,
+
+        performedBy:
+          existingOrder.receivedBy ||
+          "System",
+
+        previousData: {
+          orderNumber:
+            existingOrder.orderNumber,
+
+          customerId:
+            existingOrder.customerId,
+
+          walkInCustomerName:
+            existingOrder.walkInCustomerName,
+
+          laundryWeight:
+            existingOrder.laundryWeight,
+
+          serviceType:
+            existingOrder.serviceType,
+
+          totalPrice:
+            existingOrder.totalPrice,
+
+          paymentStatus:
+            existingOrder.paymentStatus,
+
+          status:
+            existingOrder.status,
+        },
+      });
 
       return res.json({
         message:

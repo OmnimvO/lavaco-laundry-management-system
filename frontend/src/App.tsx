@@ -4,24 +4,39 @@ import AppLayout from "./components/AppLayout";
 import DashboardPage from "./pages/DashboardPage";
 import CustomersPage from "./pages/CustomersPage";
 import OrdersPage from "./pages/OrdersPage";
+import RevenuePage from "./pages/RevenuePage";
+import ReportsPage from "./pages/ReportsPage";
+import EmployeesPage from "./pages/EmployeesPage";
+import AuditLogsPage from "./pages/AuditLogsPage";
 
-type ActivePage =
+export type ActivePage =
   | "dashboard"
   | "customers"
-  | "orders";
+  | "orders"
+  | "revenue"
+  | "auditLogs"
+  | "reports"
+  | "employees"
+  | "notifications"
+  | "settings"
+  | "profile";
 
 function App() {
   const [activePage, setActivePage] =
     useState<ActivePage>("dashboard");
 
-  const [dashboardRefreshKey, setDashboardRefreshKey] =
-    useState(0);
+  const [
+    dashboardRefreshKey,
+    setDashboardRefreshKey,
+  ] = useState(0);
 
   function handleNavigate(page: ActivePage) {
     setActivePage(page);
 
     if (page === "dashboard") {
-      setDashboardRefreshKey((previous) => previous + 1);
+      setDashboardRefreshKey(
+        (previous) => previous + 1
+      );
     }
   }
 
@@ -32,6 +47,18 @@ function App() {
 
       case "orders":
         return <OrdersPage />;
+
+      case "revenue":
+        return <RevenuePage />;
+      
+      case "auditLogs":
+        return <AuditLogsPage />;
+
+      case "reports":
+        return <ReportsPage />;
+
+      case "employees":
+        return <EmployeesPage />;
 
       case "dashboard":
       default:

@@ -40,6 +40,7 @@ type CreateOrderData = {
   totalPrice: number;
   status?: OrderStatus;
   paymentStatus?: PaymentStatus;
+  paidAt?: Date | null;
 };
 
 type UpdateOrderData = {
@@ -76,6 +77,7 @@ type UpdateOrderData = {
   totalPrice?: number;
   status?: OrderStatus;
   paymentStatus?: PaymentStatus;
+  paidAt?: Date | null;
 };
 
 async function getNextOrderNumber() {

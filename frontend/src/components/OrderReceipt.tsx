@@ -1,6 +1,7 @@
 import type { Order } from "../types/order";
 import {
   FULFILLMENT_TYPES,
+  ORDER_STATUSES,
   PAYMENT_STATUSES,
   SERVICE_TYPES,
 } from "../constants/order";
@@ -24,13 +25,23 @@ function formatCurrency(value: number) {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleString("en-PH", {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Invalid date";
+  }
+
+  return date.toLocaleString("en-PH", {
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatPackLabel(quantity: number) {
+  return `${quantity} pack${quantity === 1 ? "" : "s"}`;
 }
 
 function OrderReceipt({ order }: OrderReceiptProps) {
@@ -44,10 +55,35 @@ function OrderReceipt({ order }: OrderReceiptProps) {
     order.walkInCustomerPhone ??
     "Not provided";
 
+  const customerAddress =
+    order.customer?.address ??
+    order.walkInCustomerAddress ??
+    "Not provided";
+
+  const serviceLabel = getLabel(
+    SERVICE_TYPES,
+    order.serviceType
+  );
+
+  const fulfillmentLabel = getLabel(
+    FULFILLMENT_TYPES,
+    order.fulfillmentType
+  );
+
+  const paymentLabel = getLabel(
+    PAYMENT_STATUSES,
+    order.paymentStatus
+  );
+
+  const statusLabel = getLabel(
+    ORDER_STATUSES,
+    order.status
+  );
+
   return (
     <div className="receipt" id="order-receipt">
       <header className="receipt-header">
-        <h2>Lavaco Laundry Hub</h2>
+        <h2>Lava Co. Laundry Hub</h2>
         <p>Laundry Service Receipt</p>
       </header>
 
@@ -75,8 +111,8 @@ function OrderReceipt({ order }: OrderReceiptProps) {
         </div>
 
         <div className="receipt-row">
-          <span>Received By</span>
-          <strong>{order.receivedBy || "Not provided"}</strong>
+          <span>Address</span>
+          <strong>{customerAddress}</strong>
         </div>
       </section>
 
@@ -85,21 +121,34 @@ function OrderReceipt({ order }: OrderReceiptProps) {
       <section className="receipt-information">
         <div className="receipt-row">
           <span>Laundry Weight</span>
+
           <strong>
-            {Number(order.laundryWeight).toFixed(1)} kg
+            {Number(order.laundryWeight || 0).toFixed(1)} kg
           </strong>
         </div>
 
         <div className="receipt-row">
           <span>Number of Loads</span>
-          <strong>{order.loadCount}</strong>
+
+          <strong>
+            {order.loadCount} load
+            {order.loadCount === 1 ? "" : "s"}
+          </strong>
         </div>
 
         <div className="receipt-row">
           <span>Service</span>
-          <strong>
-            {getLabel(SERVICE_TYPES, order.serviceType)}
-          </strong>
+          <strong>{serviceLabel}</strong>
+        </div>
+
+        <div className="receipt-row">
+          <span>Rinse Cycles</span>
+          <strong>{order.rinseCycles}</strong>
+        </div>
+
+        <div className="receipt-row">
+          <span>Fulfillment</span>
+          <strong>{fulfillmentLabel}</strong>
         </div>
       </section>
 
@@ -108,9 +157,14 @@ function OrderReceipt({ order }: OrderReceiptProps) {
       <section className="receipt-charges">
         <div className="receipt-charge-row">
           <span>
-            Service ({order.loadCount} load
-            {order.loadCount === 1 ? "" : "s"} ×{" "}
-            {formatCurrency(order.servicePricePerLoad)})
+            {serviceLabel}
+            <small className="receipt-charge-detail">
+              {order.loadCount} load
+              {order.loadCount === 1 ? "" : "s"} ×{" "}
+              {formatCurrency(
+                order.servicePricePerLoad
+              )}
+            </small>
           </span>
 
           <strong>
@@ -120,20 +174,47 @@ function OrderReceipt({ order }: OrderReceiptProps) {
 
         <div className="receipt-charge-row">
           <span>
-            Rinse Cycles ({order.rinseCycles})
+            Extra Rinse
+            <small className="receipt-charge-detail">
+              {order.rinseCycles} cycle
+              {order.rinseCycles === 1 ? "" : "s"}
+              {order.rinseCycles > 2
+                ? " — flat additional charge"
+                : " — included"}
+            </small>
           </span>
 
-          <strong>{formatCurrency(order.rinseFee)}</strong>
+          <strong>
+            {formatCurrency(order.rinseFee)}
+          </strong>
         </div>
 
         <div className="receipt-charge-row">
-          <span>Soap / Detergent</span>
+          <span>
+            Soap / Detergent
+            <small className="receipt-charge-detail">
+              {formatPackLabel(
+                order.soapQuantity
+              )}{" "}
+              × ₱20.00
+            </small>
+          </span>
 
-          <strong>{formatCurrency(order.soapPrice)}</strong>
+          <strong>
+            {formatCurrency(order.soapPrice)}
+          </strong>
         </div>
 
         <div className="receipt-charge-row">
-          <span>Fabric Softener</span>
+          <span>
+            Fabric Softener
+            <small className="receipt-charge-detail">
+              {formatPackLabel(
+                order.softenerQuantity
+              )}{" "}
+              × ₱15.00
+            </small>
+          </span>
 
           <strong>
             {formatCurrency(order.softenerPrice)}
@@ -142,10 +223,10 @@ function OrderReceipt({ order }: OrderReceiptProps) {
 
         <div className="receipt-charge-row">
           <span>
-            {getLabel(
-              FULFILLMENT_TYPES,
-              order.fulfillmentType
-            )}
+            Pickup / Delivery
+            <small className="receipt-charge-detail">
+              {fulfillmentLabel}
+            </small>
           </span>
 
           <strong>
@@ -156,18 +237,44 @@ function OrderReceipt({ order }: OrderReceiptProps) {
 
       <div className="receipt-total">
         <span>Total Amount</span>
-        <strong>{formatCurrency(order.totalPrice)}</strong>
+
+        <strong>
+          {formatCurrency(order.totalPrice)}
+        </strong>
       </div>
 
       <section className="receipt-information">
         <div className="receipt-row">
-          <span>Payment</span>
+          <span>Payment Status</span>
+          <strong>{paymentLabel}</strong>
+        </div>
+
+        <div className="receipt-row">
+          <span>Order Status</span>
+          <strong>{statusLabel}</strong>
+        </div>
+
+        <div className="receipt-row">
+          <span>Received By</span>
 
           <strong>
-            {getLabel(
-              PAYMENT_STATUSES,
-              order.paymentStatus
-            )}
+            {order.receivedBy || "Not provided"}
+          </strong>
+        </div>
+
+        <div className="receipt-row">
+          <span>Claimed By</span>
+
+          <strong>
+            {order.claimedBy || "Not claimed yet"}
+          </strong>
+        </div>
+
+        <div className="receipt-row">
+          <span>Mixed White & Colored</span>
+
+          <strong>
+            {order.hasMixedWhiteColor ? "Yes" : "No"}
           </strong>
         </div>
 
@@ -182,8 +289,14 @@ function OrderReceipt({ order }: OrderReceiptProps) {
       <div className="receipt-divider" />
 
       <footer className="receipt-footer">
-        <p>Please present this receipt when claiming your laundry.</p>
-        <strong>Thank you for choosing Lavaco Laundry Hub!</strong>
+        <p>
+          Please present this receipt when claiming your
+          laundry.
+        </p>
+
+        <strong>
+          Thank you for choosing Lava Co. Laundry Hub!
+        </strong>
       </footer>
     </div>
   );

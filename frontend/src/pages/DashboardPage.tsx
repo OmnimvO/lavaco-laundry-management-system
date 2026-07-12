@@ -34,6 +34,10 @@ function isSameDay(firstDate: string, secondDate: Date) {
   );
 }
 
+function getRevenueDate(order: Order) {
+  return order.paidAt ?? order.createdAt;
+}
+
 function DashboardPage({
   refreshKey,
 }: DashboardPageProps) {
@@ -73,9 +77,11 @@ function DashboardPage({
   const dashboardData = useMemo(() => {
     const today = new Date();
 
-    const todayOrders = orders.filter((order) =>
+  const todayOrders = orders.filter(
+    (order) =>
+      order.status !== "CANCELLED" &&
       isSameDay(order.createdAt, today)
-    );
+  );
 
     const activeOrders = orders.filter(
       (order) =>
@@ -94,25 +100,32 @@ function DashboardPage({
         order.paymentStatus === "UNPAID"
     );
 
-    const todayPaidRevenue = todayOrders
-      .filter(
-        (order) =>
-          order.paymentStatus === "PAID"
-      )
-      .reduce(
-        (total, order) =>
-          total + Number(order.totalPrice || 0),
-        0
-      );
+    const todayPaidRevenue = orders
+    .filter(
+      (order) =>
+        order.paymentStatus === "PAID" &&
+        order.status !== "CANCELLED" &&
+        isSameDay(
+          getRevenueDate(order),
+          today
+        )
+    )
+    .reduce(
+      (total, order) =>
+        total + Number(order.totalPrice || 0),
+      0
+    );
 
     const recentOrders = [...orders]
       .sort(
         (firstOrder, secondOrder) =>
           new Date(
-            secondOrder.createdAt
+            secondOrder.updatedAt ??
+              secondOrder.createdAt
           ).getTime() -
           new Date(
-            firstOrder.createdAt
+            firstOrder.updatedAt ??
+              firstOrder.createdAt
           ).getTime()
       )
       .slice(0, 6);

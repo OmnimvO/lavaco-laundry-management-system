@@ -3,12 +3,15 @@ import {
   FaChartPie,
   FaUsers,
   FaClipboardList,
+  FaCoins,
+  FaHistory,
+  FaFileAlt,
+  FaUserTie,
+  FaBell,
+  FaCog,
+  FaUserCircle,
 } from "react-icons/fa";
-
-type ActivePage =
-  | "dashboard"
-  | "customers"
-  | "orders";
+import type { ActivePage } from "../App";
 
 interface AppLayoutProps {
   activePage: ActivePage;
@@ -45,6 +48,66 @@ function AppLayout({
           <button
             type="button"
             className={
+              activePage === "orders"
+                ? "nav-link active"
+                : "nav-link"
+            }
+            onClick={() =>
+              onNavigate("orders")
+            }
+          >
+            <FaClipboardList />
+            <span>Orders</span>
+          </button>
+
+          <button
+            type="button"
+            className={
+              activePage === "revenue"
+                ? "nav-link active"
+                : "nav-link"
+            }
+            onClick={() =>
+              onNavigate("revenue")
+            }
+          >
+            <FaCoins />
+            <span>Revenue</span>
+          </button>
+
+          <button
+            type="button"
+            className={
+              activePage === "reports"
+                ? "nav-link active"
+                : "nav-link"
+            }
+            onClick={() =>
+              onNavigate("reports")
+            }
+          >
+            <FaFileAlt />
+            <span>Reports</span>
+          </button>
+
+          <button
+            type="button"
+            className={
+              activePage === "employees"
+                ? "nav-link active"
+                : "nav-link"
+            }
+            onClick={() =>
+              onNavigate("employees")
+            }
+          >
+            <FaUserTie />
+            <span>Employees</span>
+          </button>
+
+          <button
+            type="button"
+            className={
               activePage === "customers"
                 ? "nav-link active"
                 : "nav-link"
@@ -60,17 +123,18 @@ function AppLayout({
           <button
             type="button"
             className={
-              activePage === "orders"
+              activePage === "auditLogs"
                 ? "nav-link active"
                 : "nav-link"
             }
             onClick={() =>
-              onNavigate("orders")
+              onNavigate("auditLogs")
             }
           >
-            <FaClipboardList />
-            <span>Orders</span>
+            <FaHistory />
+            <span>Audit Logs</span>
           </button>
+
         </nav>
       </aside>
 
@@ -79,6 +143,48 @@ function AppLayout({
           <h1>
             Lava Co. Laundry Hub Management System
           </h1>
+
+          <div className="topbar-actions">
+            <button
+              type="button"
+              className="topbar-icon-button"
+              title="Notifications"
+              aria-label="Notifications"
+              onClick={() =>
+                onNavigate("notifications")
+              }
+            >
+              <FaBell />
+
+              <span className="notification-count">
+                3
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="topbar-icon-button"
+              title="Settings"
+              aria-label="Settings"
+              onClick={() =>
+                onNavigate("settings")
+              }
+            >
+              <FaCog />
+            </button>
+
+            <button
+              type="button"
+              className="topbar-icon-button"
+              title="Profile"
+              aria-label="Profile"
+              onClick={() =>
+                onNavigate("profile")
+              }
+            >
+              <FaUserCircle />
+            </button>
+          </div>
         </header>
 
         <main className="content">

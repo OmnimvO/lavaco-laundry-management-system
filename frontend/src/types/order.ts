@@ -38,7 +38,9 @@ export type Order = {
 
   totalPrice: number;
   paymentStatus: string;
+  paidAt?: string | null;
   status: string;
 
   createdAt: string;
+  updatedAt?: string;
 };
