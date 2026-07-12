@@ -1,6 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import type { Customer } from "../types/customer";
 import type { Order } from "../types/order";
+import type { Employee } from "../types/employee";
+
 import {
   FULFILLMENT_TYPES,
   ORDER_STATUSES,
@@ -8,17 +15,23 @@ import {
   RINSE_CYCLES,
   SERVICE_TYPES,
 } from "../constants/order";
-import type { Employee } from "../types/employee";
+
+import { useSettings } from "../hooks/useSettings";
 
 type OrderFormProps = {
   customers: Customer[];
   employees: Employee[];
   selectedOrder?: Order | null;
-  onSubmit: (data: any) => void | Promise<void>;
+  onSubmit: (
+    data: unknown
+  ) => void | Promise<void>;
 };
 
 type OrderFormData = {
-  customerType: "EXISTING" | "WALK_IN";
+  customerType:
+    | "EXISTING"
+    | "WALK_IN";
+
   customerId: string;
 
   walkInCustomerName: string;
@@ -44,28 +57,27 @@ type OrderFormData = {
   status: string;
 };
 
-const SERVICE_PRICES: Record<string, number> = {
-  COMPLETE_SERVICE: 160,
-  WASH_AND_DRY: 140,
-  WASH_ONLY: 60,
-  DRY_ONLY: 70,
-  DRY_AND_FOLD: 100,
-  FOLD_ONLY: 20,
-};
+const STATUS_FLOW: Record<
+  string,
+  string[]
+> = {
+  RECEIVED: [
+    "RECEIVED",
+    "WASHING",
+    "CANCELLED",
+  ],
 
-const FULFILLMENT_FEES: Record<string, number> = {
-  NONE: 0,
-  PICKUP_ONLY: 25,
-  DELIVERY_ONLY: 25,
-  PICKUP_AND_DELIVERY: 50,
-};
+  WASHING: [
+    "WASHING",
+    "DRYING",
+    "CANCELLED",
+  ],
 
-const STATUS_FLOW: Record<string, string[]> = {
-  RECEIVED: ["RECEIVED", "WASHING", "CANCELLED"],
-
-  WASHING: ["WASHING", "DRYING", "CANCELLED"],
-
-  DRYING: ["DRYING", "FOLDING", "CANCELLED"],
+  DRYING: [
+    "DRYING",
+    "FOLDING",
+    "CANCELLED",
+  ],
 
   READY_FOR_PICKUP: [
     "READY_FOR_PICKUP",
@@ -84,12 +96,8 @@ const STATUS_FLOW: Record<string, string[]> = {
   CANCELLED: ["CANCELLED"],
 };
 
-const MAX_WEIGHT_PER_LOAD = 8;
-const SOAP_PRICE_PER_PACK = 20;
-const SOFTENER_PRICE_PER_PACK = 15;
-const EXTRA_RINSE_PRICE = 20;
-
-const initialFormData: OrderFormData = {
+const initialFormData:
+  OrderFormData = {
   customerType: "EXISTING",
   customerId: "",
 
@@ -101,7 +109,9 @@ const initialFormData: OrderFormData = {
   hasMixedWhiteColor: false,
   instructions: "",
 
-  serviceType: "COMPLETE_SERVICE",
+  serviceType:
+    "COMPLETE_SERVICE",
+
   rinseCycles: 2,
 
   soapQuantity: 0,
@@ -116,134 +126,247 @@ const initialFormData: OrderFormData = {
   status: "RECEIVED",
 };
 
+function formatCurrency(
+  value: number
+) {
+  return `₱${Number(
+    value || 0
+  ).toFixed(2)}`;
+}
+
 function OrderForm({
   customers,
   employees,
   selectedOrder,
   onSubmit,
 }: OrderFormProps) {
-  const [formData, setFormData] =
-    useState<OrderFormData>(initialFormData);
+  const {
+    settings,
+    loading: settingsLoading,
+    errorMessage:
+      settingsErrorMessage,
+  } = useSettings();
 
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
+  const [
+    formData,
+    setFormData,
+  ] = useState<OrderFormData>(
+    initialFormData
+  );
+
+  const [
+    isSubmitting,
+    setIsSubmitting,
+  ] = useState(false);
 
   useEffect(() => {
     if (!selectedOrder) {
-      setFormData(initialFormData);
+      setFormData(
+        initialFormData
+      );
       return;
     }
 
     setFormData({
-      customerType: selectedOrder.customerId
-        ? "EXISTING"
-        : "WALK_IN",
+      customerType:
+        selectedOrder.customerId
+          ? "EXISTING"
+          : "WALK_IN",
 
-      customerId: selectedOrder.customerId
-        ? String(selectedOrder.customerId)
-        : "",
+      customerId:
+        selectedOrder.customerId
+          ? String(
+              selectedOrder.customerId
+            )
+          : "",
 
       walkInCustomerName:
-        selectedOrder.walkInCustomerName ?? "",
+        selectedOrder
+          .walkInCustomerName ?? "",
 
       walkInCustomerPhone:
-        selectedOrder.walkInCustomerPhone ?? "",
+        selectedOrder
+          .walkInCustomerPhone ?? "",
 
       walkInCustomerAddress:
-        selectedOrder.walkInCustomerAddress ?? "",
+        selectedOrder
+          .walkInCustomerAddress ?? "",
 
       laundryWeight:
-        selectedOrder.laundryWeight ?? 1,
+        selectedOrder
+          .laundryWeight ?? 1,
 
       hasMixedWhiteColor:
-        selectedOrder.hasMixedWhiteColor ?? false,
+        selectedOrder
+          .hasMixedWhiteColor ??
+        false,
 
       instructions:
-        selectedOrder.instructions ?? "",
+        selectedOrder.instructions ??
+        "",
 
       serviceType:
         selectedOrder.serviceType ??
         "COMPLETE_SERVICE",
 
       rinseCycles:
-        selectedOrder.rinseCycles ?? 2,
+        selectedOrder.rinseCycles ??
+        2,
 
       soapQuantity:
-        selectedOrder.soapQuantity ?? 0,
+        selectedOrder.soapQuantity ??
+        0,
 
       softenerQuantity:
-        selectedOrder.softenerQuantity ?? 0,
+        selectedOrder
+          .softenerQuantity ?? 0,
 
       fulfillmentType:
-        selectedOrder.fulfillmentType ?? "NONE",
+        selectedOrder
+          .fulfillmentType ??
+        "NONE",
 
       receivedBy:
-        selectedOrder.receivedBy ?? "",
+        selectedOrder.receivedBy ??
+        "",
 
       claimedBy:
-        selectedOrder.claimedBy ?? "",
+        selectedOrder.claimedBy ??
+        "",
 
       paymentStatus:
-        selectedOrder.paymentStatus ?? "UNPAID",
+        selectedOrder
+          .paymentStatus ??
+        "UNPAID",
 
       status:
-        selectedOrder.status ?? "RECEIVED",
+        selectedOrder.status ??
+        "RECEIVED",
     });
   }, [selectedOrder]);
 
-  const activeEmployees = useMemo(
-    () =>
-      employees
-        .filter(
-          (employee) =>
-            employee.status === "ACTIVE"
-        )
-        .sort((first, second) => {
-          const firstName =
-            `${first.firstName} ${first.lastName}`;
+  const activeEmployees =
+    useMemo(
+      () =>
+        employees
+          .filter(
+            (employee) =>
+              employee.status ===
+              "ACTIVE"
+          )
+          .sort(
+            (
+              first,
+              second
+            ) => {
+              const firstName =
+                `${first.firstName} ${first.lastName}`;
 
-          const secondName =
-            `${second.firstName} ${second.lastName}`;
+              const secondName =
+                `${second.firstName} ${second.lastName}`;
 
-          return firstName.localeCompare(
-            secondName
-          );
-        }),
-    [employees]
+              return firstName.localeCompare(
+                secondName
+              );
+            }
+          ),
+      [employees]
+    );
+
+  const servicePrices =
+  useMemo<Record<string, number>>(
+    () => ({
+      COMPLETE_SERVICE:
+        settings?.completeServicePrice ??
+        0,
+
+      WASH_AND_DRY:
+        settings?.washAndDryPrice ??
+        0,
+
+      WASH_ONLY:
+        settings?.washOnlyPrice ??
+        0,
+
+      DRY_ONLY:
+        settings?.dryOnlyPrice ??
+        0,
+
+      DRY_AND_FOLD:
+        settings?.dryAndFoldPrice ??
+        0,
+
+      FOLD_ONLY:
+        settings?.foldOnlyPrice ??
+        0,
+    }),
+    [settings]
+  );
+
+  const fulfillmentFees =
+  useMemo<Record<string, number>>(
+    () => ({
+      NONE: 0,
+
+      PICKUP_ONLY:
+        settings?.pickupOnlyFee ??
+        0,
+
+      DELIVERY_ONLY:
+        settings?.deliveryOnlyFee ??
+        0,
+
+      PICKUP_AND_DELIVERY:
+        settings?.pickupAndDeliveryFee ??
+        0,
+    }),
+    [settings]
   );
 
   const pricing = useMemo(() => {
     const laundryWeight =
-      Number(formData.laundryWeight) || 0;
+      Number(
+        formData.laundryWeight
+      ) || 0;
+
+    const maximumWeightPerLoad =
+      settings
+        ?.maximumWeightPerLoad ?? 1;
 
     const loadCount =
       laundryWeight > 0
         ? Math.ceil(
-            laundryWeight / MAX_WEIGHT_PER_LOAD
+            laundryWeight /
+              maximumWeightPerLoad
           )
         : 0;
 
     const servicePricePerLoad =
-      SERVICE_PRICES[formData.serviceType] ?? 0;
+      servicePrices[
+        formData.serviceType
+      ] ?? 0;
 
     const serviceSubtotal =
-      servicePricePerLoad * loadCount;
+      servicePricePerLoad *
+      loadCount;
 
     const rinseFee =
       formData.rinseCycles > 2
-        ? EXTRA_RINSE_PRICE
+        ? settings
+            ?.extraRinseFee ?? 0
         : 0;
 
     const soapPrice =
       formData.soapQuantity *
-      SOAP_PRICE_PER_PACK;
+      (settings?.soapPrice ?? 0);
 
     const softenerPrice =
       formData.softenerQuantity *
-      SOFTENER_PRICE_PER_PACK;
+      (settings?.softenerPrice ??
+        0);
 
     const deliveryFee =
-      FULFILLMENT_FEES[
+      fulfillmentFees[
         formData.fulfillmentType
       ] ?? 0;
 
@@ -264,47 +387,57 @@ function OrderForm({
       deliveryFee,
       totalPrice,
     };
-  }, [formData]);
+  }, [
+    formData,
+    settings,
+    servicePrices,
+    fulfillmentFees,
+  ]);
 
-  const allowedStatuses = useMemo(() => {
-    if (!selectedOrder) {
-      return ["RECEIVED"];
-    }
+  const allowedStatuses =
+    useMemo(() => {
+      if (!selectedOrder) {
+        return ["RECEIVED"];
+      }
 
-    const currentStatus = formData.status;
+      const currentStatus =
+        formData.status;
 
-    if (currentStatus === "FOLDING") {
-      const requiresDelivery =
-        formData.fulfillmentType ===
-          "DELIVERY_ONLY" ||
-        formData.fulfillmentType ===
-          "PICKUP_AND_DELIVERY";
+      if (
+        currentStatus ===
+        "FOLDING"
+      ) {
+        const requiresDelivery =
+          formData.fulfillmentType ===
+            "DELIVERY_ONLY" ||
+          formData.fulfillmentType ===
+            "PICKUP_AND_DELIVERY";
 
-      if (requiresDelivery) {
+        if (requiresDelivery) {
+          return [
+            "FOLDING",
+            "OUT_FOR_DELIVERY",
+            "CANCELLED",
+          ];
+        }
+
         return [
           "FOLDING",
-          "OUT_FOR_DELIVERY",
+          "READY_FOR_PICKUP",
           "CANCELLED",
         ];
       }
 
-      return [
-        "FOLDING",
-        "READY_FOR_PICKUP",
-        "CANCELLED",
-      ];
-    }
-
-    return (
-      STATUS_FLOW[currentStatus] ?? [
-        currentStatus,
-      ]
-    );
-  }, [
-    selectedOrder,
-    formData.status,
-    formData.fulfillmentType,
-  ]);
+      return (
+        STATUS_FLOW[
+          currentStatus
+        ] ?? [currentStatus]
+      );
+    }, [
+      selectedOrder,
+      formData.status,
+      formData.fulfillmentType,
+    ]);
 
   function handleChange(
     event: React.ChangeEvent<
@@ -313,14 +446,20 @@ function OrderForm({
       | HTMLTextAreaElement
     >
   ) {
-    const { name, value } = event.target;
+    const {
+      name,
+      value,
+    } = event.target;
 
     const isCheckbox =
-      event.target instanceof HTMLInputElement &&
-      event.target.type === "checkbox";
+      event.target instanceof
+        HTMLInputElement &&
+      event.target.type ===
+        "checkbox";
 
     const checked =
-      event.target instanceof HTMLInputElement
+      event.target instanceof
+      HTMLInputElement
         ? event.target.checked
         : false;
 
@@ -331,42 +470,55 @@ function OrderForm({
       "softenerQuantity",
     ];
 
-    setFormData((previous) => {
-      const updatedValue = isCheckbox
-        ? checked
-        : numberFields.includes(name)
-        ? Number(value)
-        : value;
+    setFormData(
+      (previous) => {
+        const updatedValue =
+          isCheckbox
+            ? checked
+            : numberFields.includes(
+                name
+              )
+            ? Number(value)
+            : value;
 
-      const updatedData = {
-        ...previous,
-        [name]: updatedValue,
-      };
-
-      if (
-        name === "customerType" &&
-        value === "EXISTING"
-      ) {
-        return {
-          ...updatedData,
-          walkInCustomerName: "",
-          walkInCustomerPhone: "",
-          walkInCustomerAddress: "",
+        const updatedData = {
+          ...previous,
+          [name]: updatedValue,
         };
-      }
 
-      if (
-        name === "customerType" &&
-        value === "WALK_IN"
-      ) {
-        return {
-          ...updatedData,
-          customerId: "",
-        };
-      }
+        if (
+          name ===
+            "customerType" &&
+          value === "EXISTING"
+        ) {
+          return {
+            ...updatedData,
 
-      return updatedData;
-    });
+            walkInCustomerName:
+              "",
+
+            walkInCustomerPhone:
+              "",
+
+            walkInCustomerAddress:
+              "",
+          };
+        }
+
+        if (
+          name ===
+            "customerType" &&
+          value === "WALK_IN"
+        ) {
+          return {
+            ...updatedData,
+            customerId: "",
+          };
+        }
+
+        return updatedData;
+      }
+    );
   }
 
   function updateQuantity(
@@ -375,22 +527,36 @@ function OrderForm({
       | "softenerQuantity",
     difference: number
   ) {
-    setFormData((previous) => ({
-      ...previous,
-      [field]: Math.max(
-        0,
-        previous[field] + difference
-      ),
-    }));
+    setFormData(
+      (previous) => ({
+        ...previous,
+
+        [field]: Math.max(
+          0,
+          previous[field] +
+            difference
+        ),
+      })
+    );
   }
 
   async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>
+    event: React.FormEvent<
+      HTMLFormElement
+    >
   ) {
     event.preventDefault();
 
+    if (!settings) {
+      alert(
+        "Shop settings are unavailable. Please reload the page and try again."
+      );
+      return;
+    }
+
     if (
-      formData.customerType === "EXISTING" &&
+      formData.customerType ===
+        "EXISTING" &&
       !formData.customerId
     ) {
       alert(
@@ -400,7 +566,8 @@ function OrderForm({
     }
 
     if (
-      formData.customerType === "WALK_IN" &&
+      formData.customerType ===
+        "WALK_IN" &&
       !formData.walkInCustomerName.trim()
     ) {
       alert(
@@ -410,7 +577,9 @@ function OrderForm({
     }
 
     if (
-      !Number.isFinite(formData.laundryWeight) ||
+      !Number.isFinite(
+        formData.laundryWeight
+      ) ||
       formData.laundryWeight <= 0
     ) {
       alert(
@@ -420,7 +589,9 @@ function OrderForm({
     }
 
     if (
-      !Number.isInteger(formData.soapQuantity) ||
+      !Number.isInteger(
+        formData.soapQuantity
+      ) ||
       formData.soapQuantity < 0
     ) {
       alert(
@@ -433,7 +604,8 @@ function OrderForm({
       !Number.isInteger(
         formData.softenerQuantity
       ) ||
-      formData.softenerQuantity < 0
+      formData.softenerQuantity <
+        0
     ) {
       alert(
         "Fabric softener quantity must be a whole number of 0 or greater."
@@ -443,30 +615,43 @@ function OrderForm({
 
     const payload = {
       customerId:
-        formData.customerType === "EXISTING"
-          ? Number(formData.customerId)
+        formData.customerType ===
+        "EXISTING"
+          ? Number(
+              formData.customerId
+            )
           : null,
 
       walkInCustomerName:
-        formData.customerType === "WALK_IN"
-          ? formData.walkInCustomerName.trim()
+        formData.customerType ===
+        "WALK_IN"
+          ? formData
+              .walkInCustomerName
+              .trim()
           : undefined,
 
       walkInCustomerPhone:
-        formData.customerType === "WALK_IN"
-          ? formData.walkInCustomerPhone.trim()
+        formData.customerType ===
+        "WALK_IN"
+          ? formData
+              .walkInCustomerPhone
+              .trim()
           : undefined,
 
       walkInCustomerAddress:
-        formData.customerType === "WALK_IN"
-          ? formData.walkInCustomerAddress.trim()
+        formData.customerType ===
+        "WALK_IN"
+          ? formData
+              .walkInCustomerAddress
+              .trim()
           : undefined,
 
       laundryWeight:
         formData.laundryWeight,
 
       hasMixedWhiteColor:
-        formData.hasMixedWhiteColor,
+        formData
+          .hasMixedWhiteColor,
 
       instructions:
         formData.instructions.trim(),
@@ -507,6 +692,47 @@ function OrderForm({
     }
   }
 
+  if (settingsLoading) {
+    return (
+      <div className="dashboard-loading">
+        Loading shop prices...
+      </div>
+    );
+  }
+
+  if (
+    settingsErrorMessage &&
+    !settings
+  ) {
+    return (
+      <div className="dashboard-error">
+        <h2>
+          Shop settings unavailable
+        </h2>
+
+        <p>
+          {settingsErrorMessage}
+        </p>
+      </div>
+    );
+  }
+
+  if (!settings) {
+    return (
+      <div className="dashboard-error">
+        <h2>
+          Shop settings unavailable
+        </h2>
+
+        <p>
+          The order form cannot calculate
+          prices until shop settings are
+          available.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <form
       className="order-form pos-order-form"
@@ -516,7 +742,9 @@ function OrderForm({
         {/* First column */}
         <div className="order-column">
           <section className="form-section">
-            <h3>Customer Information</h3>
+            <h3>
+              Customer Information
+            </h3>
 
             <div className="form-grid">
               <div className="form-group medium-field">
@@ -527,7 +755,9 @@ function OrderForm({
                 <select
                   id="customerType"
                   name="customerType"
-                  value={formData.customerType}
+                  value={
+                    formData.customerType
+                  }
                   onChange={handleChange}
                 >
                   <option value="EXISTING">
@@ -550,7 +780,9 @@ function OrderForm({
                   <select
                     id="customerId"
                     name="customerId"
-                    value={formData.customerId}
+                    value={
+                      formData.customerId
+                    }
                     onChange={handleChange}
                     required
                   >
@@ -558,14 +790,22 @@ function OrderForm({
                       Choose customer
                     </option>
 
-                    {customers.map((customer) => (
-                      <option
-                        key={customer.id}
-                        value={customer.id}
-                      >
-                        {customer.name}
-                      </option>
-                    ))}
+                    {customers.map(
+                      (customer) => (
+                        <option
+                          key={
+                            customer.id
+                          }
+                          value={
+                            customer.id
+                          }
+                        >
+                          {
+                            customer.name
+                          }
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
               ) : (
@@ -636,7 +876,9 @@ function OrderForm({
                   id="laundryWeight"
                   type="number"
                   name="laundryWeight"
-                  value={formData.laundryWeight}
+                  value={
+                    formData.laundryWeight
+                  }
                   onChange={handleChange}
                   min="0.1"
                   step="0.1"
@@ -652,9 +894,19 @@ function OrderForm({
                 <input
                   id="loadCount"
                   type="number"
-                  value={pricing.loadCount}
+                  value={
+                    pricing.loadCount
+                  }
                   readOnly
                 />
+
+                <small className="addon-price">
+                  Maximum{" "}
+                  {settings.maximumWeightPerLoad.toFixed(
+                    1
+                  )}{" "}
+                  kg per load
+                </small>
               </div>
 
               <div className="checkbox-group mixed-color-field">
@@ -680,7 +932,9 @@ function OrderForm({
                 <textarea
                   id="instructions"
                   name="instructions"
-                  value={formData.instructions}
+                  value={
+                    formData.instructions
+                  }
                   onChange={handleChange}
                   placeholder="Example: Separate delicate clothes, avoid bleach, etc."
                 />
@@ -700,7 +954,9 @@ function OrderForm({
                 <select
                   id="receivedBy"
                   name="receivedBy"
-                  value={formData.receivedBy}
+                  value={
+                    formData.receivedBy
+                  }
                   onChange={handleChange}
                 >
                   <option value="">
@@ -713,31 +969,51 @@ function OrderForm({
                         `${employee.firstName} ${employee.lastName}` ===
                         formData.receivedBy
                     ) && (
-                      <option value={formData.receivedBy}>
-                        {formData.receivedBy} — Existing Record
+                      <option
+                        value={
+                          formData.receivedBy
+                        }
+                      >
+                        {
+                          formData.receivedBy
+                        }{" "}
+                        — Existing Record
                       </option>
                     )}
 
-                  {activeEmployees.map((employee) => {
-                    const fullName =
-                      `${employee.firstName} ${employee.lastName}`;
+                  {activeEmployees.map(
+                    (employee) => {
+                      const fullName =
+                        `${employee.firstName} ${employee.lastName}`;
 
-                    return (
-                      <option
-                        key={employee.id}
-                        value={fullName}
-                      >
-                        {fullName}
-                        {" — "}
-                        {employee.position
-                          .replaceAll("_", " ")
-                          .toLowerCase()
-                          .replace(/\b\w/g, (letter) =>
-                            letter.toUpperCase()
-                          )}
-                      </option>
-                    );
-                  })}
+                      return (
+                        <option
+                          key={
+                            employee.id
+                          }
+                          value={
+                            fullName
+                          }
+                        >
+                          {fullName}
+                          {" — "}
+                          {employee.position
+                            .replaceAll(
+                              "_",
+                              " "
+                            )
+                            .toLowerCase()
+                            .replace(
+                              /\b\w/g,
+                              (
+                                letter
+                              ) =>
+                                letter.toUpperCase()
+                            )}
+                        </option>
+                      );
+                    }
+                  )}
                 </select>
               </div>
 
@@ -749,7 +1025,9 @@ function OrderForm({
                 <input
                   id="claimedBy"
                   name="claimedBy"
-                  value={formData.claimedBy}
+                  value={
+                    formData.claimedBy
+                  }
                   onChange={handleChange}
                   placeholder="Customer or representative"
                 />
@@ -772,14 +1050,20 @@ function OrderForm({
                 <select
                   id="serviceType"
                   name="serviceType"
-                  value={formData.serviceType}
+                  value={
+                    formData.serviceType
+                  }
                   onChange={handleChange}
                 >
                   {SERVICE_TYPES.map(
                     (service) => (
                       <option
-                        key={service.value}
-                        value={service.value}
+                        key={
+                          service.value
+                        }
+                        value={
+                          service.value
+                        }
                       >
                         {service.label}
                       </option>
@@ -795,9 +1079,9 @@ function OrderForm({
 
                 <input
                   id="servicePricePerLoad"
-                  value={`₱${pricing.servicePricePerLoad.toFixed(
-                    2
-                  )}`}
+                  value={formatCurrency(
+                    pricing.servicePricePerLoad
+                  )}
                   readOnly
                 />
               </div>
@@ -809,9 +1093,9 @@ function OrderForm({
 
                 <input
                   id="serviceSubtotal"
-                  value={`₱${pricing.serviceSubtotal.toFixed(
-                    2
-                  )}`}
+                  value={formatCurrency(
+                    pricing.serviceSubtotal
+                  )}
                   readOnly
                 />
               </div>
@@ -819,7 +1103,9 @@ function OrderForm({
           </section>
 
           <section className="form-section">
-            <h3>Additional Services</h3>
+            <h3>
+              Additional Services
+            </h3>
 
             <div className="form-grid">
               <div className="form-group medium-field">
@@ -830,17 +1116,25 @@ function OrderForm({
                 <select
                   id="rinseCycles"
                   name="rinseCycles"
-                  value={formData.rinseCycles}
+                  value={
+                    formData.rinseCycles
+                  }
                   onChange={handleChange}
                 >
-                  {RINSE_CYCLES.map((rinse) => (
-                    <option
-                      key={rinse.value}
-                      value={rinse.value}
-                    >
-                      {rinse.label}
-                    </option>
-                  ))}
+                  {RINSE_CYCLES.map(
+                    (rinse) => (
+                      <option
+                        key={
+                          rinse.value
+                        }
+                        value={
+                          rinse.value
+                        }
+                      >
+                        {rinse.label}
+                      </option>
+                    )
+                  )}
                 </select>
               </div>
 
@@ -851,11 +1145,20 @@ function OrderForm({
 
                 <input
                   id="rinseFee"
-                  value={`₱${pricing.rinseFee.toFixed(
-                    2
-                  )}`}
+                  value={formatCurrency(
+                    pricing.rinseFee
+                  )}
                   readOnly
                 />
+
+                <small className="addon-price">
+                  Extra rinse fee:{" "}
+                  <strong>
+                    {formatCurrency(
+                      settings.extraRinseFee
+                    )}
+                  </strong>
+                </small>
               </div>
 
               <div className="form-group addon-quantity-field">
@@ -874,7 +1177,8 @@ function OrderForm({
                       )
                     }
                     disabled={
-                      formData.soapQuantity === 0
+                      formData.soapQuantity ===
+                      0
                     }
                     aria-label="Decrease soap quantity"
                   >
@@ -885,7 +1189,9 @@ function OrderForm({
                     id="soapQuantity"
                     type="number"
                     name="soapQuantity"
-                    value={formData.soapQuantity}
+                    value={
+                      formData.soapQuantity
+                    }
                     onChange={handleChange}
                     min="0"
                     step="1"
@@ -908,10 +1214,18 @@ function OrderForm({
                 </div>
 
                 <small className="addon-price">
-                  {formData.soapQuantity} × ₱
-                  {SOAP_PRICE_PER_PACK.toFixed(2)} ={" "}
+                  {
+                    formData.soapQuantity
+                  }{" "}
+                  ×{" "}
+                  {formatCurrency(
+                    settings.soapPrice
+                  )}{" "}
+                  ={" "}
                   <strong>
-                    ₱{pricing.soapPrice.toFixed(2)}
+                    {formatCurrency(
+                      pricing.soapPrice
+                    )}
                   </strong>
                 </small>
               </div>
@@ -932,7 +1246,8 @@ function OrderForm({
                       )
                     }
                     disabled={
-                      formData.softenerQuantity === 0
+                      formData.softenerQuantity ===
+                      0
                     }
                     aria-label="Decrease softener quantity"
                   >
@@ -968,15 +1283,17 @@ function OrderForm({
                 </div>
 
                 <small className="addon-price">
-                  {formData.softenerQuantity} × ₱
-                  {SOFTENER_PRICE_PER_PACK.toFixed(
-                    2
+                  {
+                    formData.softenerQuantity
+                  }{" "}
+                  ×{" "}
+                  {formatCurrency(
+                    settings.softenerPrice
                   )}{" "}
                   ={" "}
                   <strong>
-                    ₱
-                    {pricing.softenerPrice.toFixed(
-                      2
+                    {formatCurrency(
+                      pricing.softenerPrice
                     )}
                   </strong>
                 </small>
@@ -1002,12 +1319,20 @@ function OrderForm({
                   onChange={handleChange}
                 >
                   {FULFILLMENT_TYPES.map(
-                    (fulfillment) => (
+                    (
+                      fulfillment
+                    ) => (
                       <option
-                        key={fulfillment.value}
-                        value={fulfillment.value}
+                        key={
+                          fulfillment.value
+                        }
+                        value={
+                          fulfillment.value
+                        }
                       >
-                        {fulfillment.label}
+                        {
+                          fulfillment.label
+                        }
                       </option>
                     )
                   )}
@@ -1016,14 +1341,14 @@ function OrderForm({
 
               <div className="form-group compact-field">
                 <label htmlFor="deliveryFee">
-                  Delivery Fee
+                  Fulfillment Fee
                 </label>
 
                 <input
                   id="deliveryFee"
-                  value={`₱${pricing.deliveryFee.toFixed(
-                    2
-                  )}`}
+                  value={formatCurrency(
+                    pricing.deliveryFee
+                  )}
                   readOnly
                 />
               </div>
@@ -1050,10 +1375,16 @@ function OrderForm({
                   {PAYMENT_STATUSES.map(
                     (payment) => (
                       <option
-                        key={payment.value}
-                        value={payment.value}
+                        key={
+                          payment.value
+                        }
+                        value={
+                          payment.value
+                        }
                       >
-                        {payment.label}
+                        {
+                          payment.label
+                        }
                       </option>
                     )
                   )}
@@ -1068,22 +1399,36 @@ function OrderForm({
                 <select
                   id="status"
                   name="status"
-                  value={formData.status}
+                  value={
+                    formData.status
+                  }
                   onChange={handleChange}
                 >
                   {ORDER_STATUSES.filter(
-                    (statusOption) =>
+                    (
+                      statusOption
+                    ) =>
                       allowedStatuses.includes(
                         statusOption.value
                       )
-                  ).map((statusOption) => (
-                    <option
-                      key={statusOption.value}
-                      value={statusOption.value}
-                    >
-                      {statusOption.label}
-                    </option>
-                  ))}
+                  ).map(
+                    (
+                      statusOption
+                    ) => (
+                      <option
+                        key={
+                          statusOption.value
+                        }
+                        value={
+                          statusOption.value
+                        }
+                      >
+                        {
+                          statusOption.label
+                        }
+                      </option>
+                    )
+                  )}
                 </select>
               </div>
             </div>
@@ -1092,143 +1437,212 @@ function OrderForm({
 
         {/* Third column */}
         <aside className="summary-column">
-        <section className="price-summary-section">
-          <h3>Order Summary</h3>
+          <section className="price-summary-section">
+            <h3>Order Summary</h3>
 
-          <div className="summary-overview">
-            <div className="summary-overview-item">
-              <span>Weight</span>
+            <div className="summary-overview">
+              <div className="summary-overview-item">
+                <span>Weight</span>
+
+                <strong>
+                  {Number(
+                    formData.laundryWeight ||
+                      0
+                  ).toFixed(1)}{" "}
+                  kg
+                </strong>
+              </div>
+
+              <div className="summary-overview-item">
+                <span>Loads</span>
+
+                <strong>
+                  {pricing.loadCount}
+                </strong>
+              </div>
+
+              <div className="summary-overview-item summary-overview-total">
+                <span>Total</span>
+
+                <strong>
+                  {formatCurrency(
+                    pricing.totalPrice
+                  )}
+                </strong>
+              </div>
+            </div>
+
+            <div className="price-summary-list">
+              <div className="price-summary-row">
+                <div className="summary-row-description">
+                  <span>
+                    {SERVICE_TYPES.find(
+                      (service) =>
+                        service.value ===
+                        formData.serviceType
+                    )?.label ??
+                      formData.serviceType}
+                  </span>
+
+                  <small>
+                    {pricing.loadCount}{" "}
+                    load
+                    {pricing.loadCount ===
+                    1
+                      ? ""
+                      : "s"}{" "}
+                    ×{" "}
+                    {formatCurrency(
+                      pricing.servicePricePerLoad
+                    )}
+                  </small>
+                </div>
+
+                <strong>
+                  {formatCurrency(
+                    pricing.serviceSubtotal
+                  )}
+                </strong>
+              </div>
+
+              <div className="price-summary-row">
+                <div className="summary-row-description">
+                  <span>
+                    Extra Rinse
+                  </span>
+
+                  <small>
+                    {
+                      formData.rinseCycles
+                    }{" "}
+                    rinse cycles
+                    {formData.rinseCycles >
+                    2
+                      ? ` — flat ${formatCurrency(
+                          settings.extraRinseFee
+                        )} charge`
+                      : " — included"}
+                  </small>
+                </div>
+
+                <strong>
+                  {formatCurrency(
+                    pricing.rinseFee
+                  )}
+                </strong>
+              </div>
+
+              <div className="price-summary-row">
+                <div className="summary-row-description">
+                  <span>
+                    Soap / Detergent
+                  </span>
+
+                  <small>
+                    {
+                      formData.soapQuantity
+                    }{" "}
+                    pack
+                    {formData.soapQuantity ===
+                    1
+                      ? ""
+                      : "s"}{" "}
+                    ×{" "}
+                    {formatCurrency(
+                      settings.soapPrice
+                    )}
+                  </small>
+                </div>
+
+                <strong>
+                  {formatCurrency(
+                    pricing.soapPrice
+                  )}
+                </strong>
+              </div>
+
+              <div className="price-summary-row">
+                <div className="summary-row-description">
+                  <span>
+                    Fabric Softener
+                  </span>
+
+                  <small>
+                    {
+                      formData.softenerQuantity
+                    }{" "}
+                    pack
+                    {formData.softenerQuantity ===
+                    1
+                      ? ""
+                      : "s"}{" "}
+                    ×{" "}
+                    {formatCurrency(
+                      settings.softenerPrice
+                    )}
+                  </small>
+                </div>
+
+                <strong>
+                  {formatCurrency(
+                    pricing.softenerPrice
+                  )}
+                </strong>
+              </div>
+
+              <div className="price-summary-row">
+                <div className="summary-row-description">
+                  <span>
+                    {FULFILLMENT_TYPES.find(
+                      (
+                        fulfillment
+                      ) =>
+                        fulfillment.value ===
+                        formData.fulfillmentType
+                    )?.label ??
+                      "Pickup / Delivery"}
+                  </span>
+
+                  <small>
+                    Fulfillment fee
+                  </small>
+                </div>
+
+                <strong>
+                  {formatCurrency(
+                    pricing.deliveryFee
+                  )}
+                </strong>
+              </div>
+            </div>
+
+            <div className="total-section">
+              <span>Total Amount</span>
+
               <strong>
-                {Number(formData.laundryWeight || 0).toFixed(1)} kg
+                {formatCurrency(
+                  pricing.totalPrice
+                )}
               </strong>
             </div>
+          </section>
 
-            <div className="summary-overview-item">
-              <span>Loads</span>
-              <strong>{pricing.loadCount}</strong>
-            </div>
-
-            <div className="summary-overview-item summary-overview-total">
-              <span>Total</span>
-              <strong>
-                ₱{pricing.totalPrice.toFixed(2)}
-              </strong>
-            </div>
+          <div className="form-actions summary-actions">
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={
+                isSubmitting
+              }
+            >
+              {isSubmitting
+                ? "Saving..."
+                : selectedOrder
+                ? "Update Order"
+                : "Create Order"}
+            </button>
           </div>
-
-          <div className="price-summary-list">
-            <div className="price-summary-row">
-              <div className="summary-row-description">
-                <span>
-                  {SERVICE_TYPES.find(
-                    (service) =>
-                      service.value === formData.serviceType
-                  )?.label ?? formData.serviceType}
-                </span>
-
-                <small>
-                  {pricing.loadCount} load
-                  {pricing.loadCount === 1 ? "" : "s"} × ₱
-                  {pricing.servicePricePerLoad.toFixed(2)}
-                </small>
-              </div>
-
-              <strong>
-                ₱{pricing.serviceSubtotal.toFixed(2)}
-              </strong>
-            </div>
-
-            <div className="price-summary-row">
-              <div className="summary-row-description">
-                <span>Extra Rinse</span>
-
-                <small>
-                  {formData.rinseCycles} rinse cycles
-                  {formData.rinseCycles > 2
-                    ? " — flat additional charge"
-                    : " — included"}
-                </small>
-              </div>
-
-              <strong>
-                ₱{pricing.rinseFee.toFixed(2)}
-              </strong>
-            </div>
-
-            <div className="price-summary-row">
-              <div className="summary-row-description">
-                <span>Soap / Detergent</span>
-
-                <small>
-                  {formData.soapQuantity} pack
-                  {formData.soapQuantity === 1 ? "" : "s"} × ₱
-                  {SOAP_PRICE_PER_PACK.toFixed(2)}
-                </small>
-              </div>
-
-              <strong>
-                ₱{pricing.soapPrice.toFixed(2)}
-              </strong>
-            </div>
-
-            <div className="price-summary-row">
-              <div className="summary-row-description">
-                <span>Fabric Softener</span>
-
-                <small>
-                  {formData.softenerQuantity} pack
-                  {formData.softenerQuantity === 1 ? "" : "s"} × ₱
-                  {SOFTENER_PRICE_PER_PACK.toFixed(2)}
-                </small>
-              </div>
-
-              <strong>
-                ₱{pricing.softenerPrice.toFixed(2)}
-              </strong>
-            </div>
-
-            <div className="price-summary-row">
-              <div className="summary-row-description">
-                <span>
-                  {FULFILLMENT_TYPES.find(
-                    (fulfillment) =>
-                      fulfillment.value ===
-                      formData.fulfillmentType
-                  )?.label ?? "Pickup / Delivery"}
-                </span>
-
-                <small>Fulfillment fee</small>
-              </div>
-
-              <strong>
-                ₱{pricing.deliveryFee.toFixed(2)}
-              </strong>
-            </div>
-          </div>
-
-          <div className="total-section">
-            <span>Total Amount</span>
-
-            <strong>
-              ₱{pricing.totalPrice.toFixed(2)}
-            </strong>
-          </div>
-        </section>
-
-        <div className="form-actions summary-actions">
-          <button
-            type="submit"
-            className="btn-primary"
-            disabled={isSubmitting}
-          >
-            {isSubmitting
-              ? "Saving..."
-              : selectedOrder
-              ? "Update Order"
-              : "Create Order"}
-          </button>
-        </div>
-      </aside>
+        </aside>
       </div>
     </form>
   );

@@ -68,6 +68,16 @@ enum AuditEntityType {
   REPORT
 }
 
+enum UserRole {
+  ADMIN
+  STAFF
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model Customer {
   id        Int      @id @default(autoincrement())
   name      String
@@ -154,6 +164,8 @@ model Employee {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  user User?
 }
 
 model AuditLog {
@@ -171,5 +183,51 @@ model AuditLog {
   previousData Json?
   newData      Json?
 
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id Int @id @default(autoincrement())
+
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         UserRole   @default(STAFF)
+  status       UserStatus @default(ACTIVE)
+
+  employeeId Int?      @unique
+  employee   Employee? @relation(fields: [employeeId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ShopSettings {
+  id Int @id @default(1)
+
+  shopName      String @default("Lava Co. Laundry Hub")
+  shopAddress   String?
+  contactNumber String?
+  receiptFooter String @default("Thank you for choosing Lava Co. Laundry Hub!")
+
+  completeServicePrice Float @default(150)
+  washAndDryPrice      Float @default(120)
+  washOnlyPrice        Float @default(70)
+  dryOnlyPrice         Float @default(70)
+  dryAndFoldPrice      Float @default(100)
+  foldOnlyPrice        Float @default(40)
+
+  extraRinseFee Float @default(20)
+
+  soapPrice     Float @default(20)
+  softenerPrice Float @default(15)
+
+  pickupOnlyFee       Float @default(0)
+  deliveryOnlyFee     Float @default(0)
+  pickupAndDeliveryFee Float @default(0)
+
+  maximumWeightPerLoad Float @default(8)
+
+  updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
 }
