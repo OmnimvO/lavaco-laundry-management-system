@@ -4,19 +4,25 @@ import type {
   Response,
 } from "express";
 
-import { authService } from "../services/auth.service.js";
+import {
+  UserStatus,
+} from "../generated/prisma/client.js";
+
+import {
+  authService,
+} from "../services/auth.service.js";
 
 export async function requireAuth(
-  req: Request,
-  res: Response,
+  request: Request,
+  response: Response,
   next: NextFunction
 ) {
   try {
     const authorizationHeader =
-      req.headers.authorization;
+      request.headers.authorization;
 
     if (!authorizationHeader) {
-      return res.status(401).json({
+      return response.status(401).json({
         message:
           "Authorization token is required",
       });
@@ -25,22 +31,85 @@ export async function requireAuth(
     const [
       scheme,
       token,
-    ] = authorizationHeader.split(" ");
+    ] = authorizationHeader.split(
+      " "
+    );
 
     if (
       scheme !== "Bearer" ||
       !token
     ) {
-      return res.status(401).json({
+      return response.status(401).json({
         message:
           "Use a valid Bearer token",
       });
     }
 
     const payload =
-      authService.verifyToken(token);
+      authService.verifyToken(
+        token
+      );
 
-    req.user = payload;
+    const user =
+      await authService.getUserById(
+        payload.userId,
+        true
+      );
+
+    if (!user) {
+      return response.status(401).json({
+        message:
+          "The account linked to this token no longer exists.",
+      });
+    }
+
+    if (user.isArchived) {
+      return response.status(401).json({
+        message:
+          "This account has been archived. Please contact an administrator.",
+      });
+    }
+
+    if (
+      user.status !==
+      UserStatus.ACTIVE
+    ) {
+      return response.status(401).json({
+        message:
+          "This account is inactive.",
+      });
+    }
+
+    if (
+      user.employee?.isArchived
+    ) {
+      return response.status(401).json({
+        message:
+          "The linked employee record has been archived.",
+      });
+    }
+
+    if (
+      user.employee &&
+      user.employee.status !==
+        "ACTIVE"
+    ) {
+      return response.status(401).json({
+        message:
+          "The linked employee record is inactive.",
+      });
+    }
+
+    request.user = {
+      userId:
+        user.id,
+
+      email:
+        user.email,
+
+      role:
+        user.role,
+    };
 
     return next();
   } catch (error) {
@@ -49,7 +118,7 @@ export async function requireAuth(
       error
     );
 
-    return res.status(401).json({
+    return response.status(401).json({
       message:
         "Invalid or expired token",
     });

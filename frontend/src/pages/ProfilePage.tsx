@@ -133,7 +133,10 @@ function ProfilePage() {
   ) {
     event.preventDefault();
 
-    if (!token) {
+    if (
+      typeof token !== "string" ||
+      !token.trim()
+    ) {
       showToast(
         "Your session is unavailable. Please log in again.",
         "error"

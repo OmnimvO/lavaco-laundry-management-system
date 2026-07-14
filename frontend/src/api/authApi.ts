@@ -8,7 +8,8 @@ const API_URL =
   "http://localhost:3000/api/auth";
 
 type CurrentUserResponse = {
-  user: AuthResponse["user"];
+  user:
+    AuthResponse["user"];
 };
 
 type MessageResponse = {
@@ -26,7 +27,8 @@ async function handleResponse<T>(
   let data: unknown;
 
   try {
-    data = await response.json();
+    data =
+      await response.json();
   } catch {
     data = null;
   }
@@ -36,7 +38,8 @@ async function handleResponse<T>(
       typeof data === "object" &&
       data !== null &&
       "message" in data &&
-      typeof data.message === "string"
+      typeof data.message ===
+        "string"
         ? data.message
         : "Authentication request failed.";
 
@@ -46,90 +49,122 @@ async function handleResponse<T>(
   return data as T;
 }
 
+function getAuthHeaders(
+  token:
+    | string
+    | undefined,
+  includeJson = false
+): HeadersInit {
+  if (
+    typeof token !== "string" ||
+    !token.trim()
+  ) {
+    throw new Error(
+      "Your session is unavailable. Please log in again."
+    );
+  }
+
+  return {
+    ...(includeJson
+      ? {
+          "Content-Type":
+            "application/json",
+        }
+      : {}),
+
+    Authorization:
+      `Bearer ${token}`,
+  };
+}
+
 export async function login(
   data: LoginRequest
 ): Promise<AuthResponse> {
-  const response = await fetch(
-    `${API_URL}/login`,
-    {
-      method: "POST",
+  const response =
+    await fetch(
+      `${API_URL}/login`,
+      {
+        method: "POST",
 
-      headers: {
-        "Content-Type":
-          "application/json",
-      },
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
 
-      body: JSON.stringify(data),
-    }
-  );
+        body:
+          JSON.stringify(data),
+      }
+    );
 
-  return handleResponse<AuthResponse>(
-    response
-  );
+  return handleResponse<
+    AuthResponse
+  >(response);
 }
 
 export async function register(
   data: RegisterRequest
 ): Promise<AuthResponse> {
-  const response = await fetch(
-    `${API_URL}/register`,
-    {
-      method: "POST",
+  const response =
+    await fetch(
+      `${API_URL}/register`,
+      {
+        method: "POST",
 
-      headers: {
-        "Content-Type":
-          "application/json",
-      },
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
 
-      body: JSON.stringify(data),
-    }
-  );
+        body:
+          JSON.stringify(data),
+      }
+    );
 
-  return handleResponse<AuthResponse>(
-    response
-  );
+  return handleResponse<
+    AuthResponse
+  >(response);
 }
 
 export async function getCurrentUser(
   token: string
 ): Promise<CurrentUserResponse> {
-  const response = await fetch(
-    `${API_URL}/me`,
-    {
-      headers: {
-        Authorization:
-          `Bearer ${token}`,
-      },
-    }
-  );
+  const response =
+    await fetch(
+      `${API_URL}/me`,
+      {
+        headers:
+          getAuthHeaders(token),
+      }
+    );
 
-  return handleResponse<CurrentUserResponse>(
-    response
-  );
+  return handleResponse<
+    CurrentUserResponse
+  >(response);
 }
 
 export async function changePassword(
-  data: ChangePasswordData,
+  data:
+    ChangePasswordData,
   token: string
 ): Promise<MessageResponse> {
-  const response = await fetch(
-    `${API_URL}/change-password`,
-    {
-      method: "PATCH",
+  const response =
+    await fetch(
+      `${API_URL}/change-password`,
+      {
+        method: "PATCH",
 
-      headers: {
-        "Content-Type":
-          "application/json",
+        headers:
+          getAuthHeaders(
+            token,
+            true
+          ),
 
-        Authorization:
-          `Bearer ${token}`,
-      },
+        body:
+          JSON.stringify(data),
+      }
+    );
 
-      body: JSON.stringify(data),
-    }
-  );
-
-  return handleResponse<MessageResponse>(
-    response
-  );
+  return handleResponse<
+    MessageResponse
+  >(response);
 }

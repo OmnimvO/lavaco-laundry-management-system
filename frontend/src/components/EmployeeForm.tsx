@@ -3,6 +3,22 @@ import {
   useState,
 } from "react";
 
+import type {
+  ChangeEvent,
+  FormEvent,
+} from "react";
+
+import {
+  FaBriefcase,
+  FaCalendarAlt,
+  FaMapMarkerAlt,
+  FaPhoneAlt,
+  FaSave,
+  FaStickyNote,
+  FaTimes,
+  FaUser,
+} from "react-icons/fa";
+
 import type { Employee } from "../types/employee";
 import type { EmployeePayload } from "../api/employeeApi";
 
@@ -16,6 +32,7 @@ type EmployeeFormProps = {
   onSubmit: (
     data: EmployeePayload
   ) => void | Promise<void>;
+  onCancel: () => void;
 };
 
 type EmployeeFormData = {
@@ -29,42 +46,55 @@ type EmployeeFormData = {
   notes: string;
 };
 
+type EmployeeFormErrors = {
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  dateHired?: string;
+};
+
 function getTodayString() {
   return new Date()
     .toISOString()
     .slice(0, 10);
 }
 
-const initialFormData: EmployeeFormData = {
-  firstName: "",
-  lastName: "",
-  phone: "",
-  address: "",
-  position: "LAUNDRY_STAFF",
-  status: "ACTIVE",
-  dateHired: getTodayString(),
-  notes: "",
-};
+function getInitialFormData():
+  EmployeeFormData {
+  return {
+    firstName: "",
+    lastName: "",
+    phone: "",
+    address: "",
+    position: "LAUNDRY_STAFF",
+    status: "ACTIVE",
+    dateHired: getTodayString(),
+    notes: "",
+  };
+}
 
 function EmployeeForm({
   selectedEmployee,
   onSubmit,
+  onCancel,
 }: EmployeeFormProps) {
   const [formData, setFormData] =
     useState<EmployeeFormData>(
-      initialFormData
+      getInitialFormData()
     );
+
+  const [errors, setErrors] =
+    useState<EmployeeFormErrors>({});
 
   const [isSubmitting, setIsSubmitting] =
     useState(false);
 
   useEffect(() => {
     if (!selectedEmployee) {
-      setFormData({
-        ...initialFormData,
-        dateHired: getTodayString(),
-      });
-
+      setFormData(
+        getInitialFormData()
+      );
+      setErrors({});
       return;
     }
 
@@ -101,10 +131,12 @@ function EmployeeForm({
       notes:
         selectedEmployee.notes ?? "",
     });
+
+    setErrors({});
   }, [selectedEmployee]);
 
   function handleChange(
-    event: React.ChangeEvent<
+    event: ChangeEvent<
       | HTMLInputElement
       | HTMLSelectElement
       | HTMLTextAreaElement
@@ -117,31 +149,67 @@ function EmployeeForm({
       ...previous,
       [name]: value,
     }));
+
+    if (
+      name in errors &&
+      errors[
+        name as keyof EmployeeFormErrors
+      ]
+    ) {
+      setErrors((previous) => ({
+        ...previous,
+        [name]: undefined,
+      }));
+    }
   }
 
-  async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
+  function validateForm() {
+    const nextErrors:
+      EmployeeFormErrors = {};
 
     if (!formData.firstName.trim()) {
-      alert(
-        "Employee first name is required."
-      );
-      return;
+      nextErrors.firstName =
+        "First name is required.";
     }
 
     if (!formData.lastName.trim()) {
-      alert(
-        "Employee last name is required."
+      nextErrors.lastName =
+        "Last name is required.";
+    }
+
+    const phoneDigits =
+      formData.phone.replace(
+        /\D/g,
+        ""
       );
-      return;
+
+    if (
+      formData.phone.trim() &&
+      phoneDigits.length < 10
+    ) {
+      nextErrors.phone =
+        "Enter a valid phone number.";
     }
 
     if (!formData.dateHired) {
-      alert(
-        "Date hired is required."
-      );
+      nextErrors.dateHired =
+        "Date hired is required.";
+    }
+
+    setErrors(nextErrors);
+
+    return (
+      Object.keys(nextErrors).length ===
+      0
+    );
+  }
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (!validateForm()) {
       return;
     }
 
@@ -184,157 +252,286 @@ function EmployeeForm({
 
   return (
     <form
-      className="employee-form"
+      className="employee-form employee-modal-form"
       onSubmit={handleSubmit}
+      noValidate
     >
-      <div className="employee-form-grid">
-        <div className="form-group">
-          <label htmlFor="firstName">
-            First Name
-          </label>
+      <section className="employee-form-section">
+        <div className="employee-form-section-header">
+          <div className="employee-form-section-icon">
+            <FaUser />
+          </div>
 
-          <input
-            id="firstName"
-            name="firstName"
-            value={formData.firstName}
-            onChange={handleChange}
-            placeholder="Employee first name"
-            required
-          />
+          <div>
+            <h3>
+              Employee Information
+            </h3>
+
+            <p>
+              Enter the employee&apos;s
+              personal and employment details.
+            </p>
+          </div>
         </div>
 
-        <div className="form-group">
-          <label htmlFor="lastName">
-            Last Name
-          </label>
+        <div className="employee-form-grid">
+          <div className="employee-field">
+            <label htmlFor="firstName">
+              First Name
+              <span>*</span>
+            </label>
 
-          <input
-            id="lastName"
-            name="lastName"
-            value={formData.lastName}
-            onChange={handleChange}
-            placeholder="Employee last name"
-            required
-          />
-        </div>
+            <div
+              className={`employee-input-wrapper ${
+                errors.firstName
+                  ? "has-error"
+                  : ""
+              }`}
+            >
+              <FaUser />
 
-        <div className="form-group">
-          <label htmlFor="phone">
-            Phone Number
-          </label>
+              <input
+                id="firstName"
+                name="firstName"
+                value={
+                  formData.firstName
+                }
+                onChange={handleChange}
+                placeholder="First name"
+                autoFocus
+              />
+            </div>
 
-          <input
-            id="phone"
-            name="phone"
-            value={formData.phone}
-            onChange={handleChange}
-            placeholder="09XXXXXXXXX"
-          />
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="position">
-            Position
-          </label>
-
-          <select
-            id="position"
-            name="position"
-            value={formData.position}
-            onChange={handleChange}
-          >
-            {EMPLOYEE_POSITIONS.map(
-              (position) => (
-                <option
-                  key={position.value}
-                  value={position.value}
-                >
-                  {position.label}
-                </option>
-              )
+            {errors.firstName && (
+              <small className="employee-field-error">
+                {errors.firstName}
+              </small>
             )}
-          </select>
-        </div>
+          </div>
 
-        <div className="form-group">
-          <label htmlFor="status">
-            Employment Status
-          </label>
+          <div className="employee-field">
+            <label htmlFor="lastName">
+              Last Name
+              <span>*</span>
+            </label>
 
-          <select
-            id="status"
-            name="status"
-            value={formData.status}
-            onChange={handleChange}
-          >
-            {EMPLOYEE_STATUSES.map(
-              (status) => (
-                <option
-                  key={status.value}
-                  value={status.value}
-                >
-                  {status.label}
-                </option>
-              )
+            <div
+              className={`employee-input-wrapper ${
+                errors.lastName
+                  ? "has-error"
+                  : ""
+              }`}
+            >
+              <FaUser />
+
+              <input
+                id="lastName"
+                name="lastName"
+                value={
+                  formData.lastName
+                }
+                onChange={handleChange}
+                placeholder="Last name"
+              />
+            </div>
+
+            {errors.lastName && (
+              <small className="employee-field-error">
+                {errors.lastName}
+              </small>
             )}
-          </select>
+          </div>
+
+          <div className="employee-field">
+            <label htmlFor="phone">
+              Phone Number
+            </label>
+
+            <div
+              className={`employee-input-wrapper ${
+                errors.phone
+                  ? "has-error"
+                  : ""
+              }`}
+            >
+              <FaPhoneAlt />
+
+              <input
+                id="phone"
+                name="phone"
+                type="tel"
+                value={formData.phone}
+                onChange={handleChange}
+                placeholder="09XX XXX XXXX"
+              />
+            </div>
+
+            {errors.phone && (
+              <small className="employee-field-error">
+                {errors.phone}
+              </small>
+            )}
+          </div>
+
+          <div className="employee-field">
+            <label htmlFor="dateHired">
+              Date Hired
+              <span>*</span>
+            </label>
+
+            <div
+              className={`employee-input-wrapper ${
+                errors.dateHired
+                  ? "has-error"
+                  : ""
+              }`}
+            >
+              <FaCalendarAlt />
+
+              <input
+                id="dateHired"
+                type="date"
+                name="dateHired"
+                value={
+                  formData.dateHired
+                }
+                onChange={handleChange}
+              />
+            </div>
+
+            {errors.dateHired && (
+              <small className="employee-field-error">
+                {errors.dateHired}
+              </small>
+            )}
+          </div>
+
+          <div className="employee-field">
+            <label htmlFor="position">
+              Position
+            </label>
+
+            <div className="employee-input-wrapper">
+              <FaBriefcase />
+
+              <select
+                id="position"
+                name="position"
+                value={
+                  formData.position
+                }
+                onChange={handleChange}
+              >
+                {EMPLOYEE_POSITIONS.map(
+                  (position) => (
+                    <option
+                      key={
+                        position.value
+                      }
+                      value={
+                        position.value
+                      }
+                    >
+                      {position.label}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+          </div>
+
+          <div className="employee-field">
+            <label htmlFor="status">
+              Employment Status
+            </label>
+
+            <div className="employee-input-wrapper">
+              <FaBriefcase />
+
+              <select
+                id="status"
+                name="status"
+                value={formData.status}
+                onChange={handleChange}
+              >
+                {EMPLOYEE_STATUSES.map(
+                  (status) => (
+                    <option
+                      key={status.value}
+                      value={status.value}
+                    >
+                      {status.label}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+          </div>
+
+          <div className="employee-field employee-full-width">
+            <label htmlFor="address">
+              Address
+            </label>
+
+            <div className="employee-input-wrapper">
+              <FaMapMarkerAlt />
+
+              <input
+                id="address"
+                name="address"
+                value={
+                  formData.address
+                }
+                onChange={handleChange}
+                placeholder="Complete address"
+              />
+            </div>
+          </div>
+
+          <div className="employee-field employee-full-width">
+            <label htmlFor="notes">
+              Notes
+            </label>
+
+            <div className="employee-input-wrapper employee-textarea-wrapper">
+              <FaStickyNote />
+
+              <textarea
+                id="notes"
+                name="notes"
+                value={formData.notes}
+                onChange={handleChange}
+                placeholder="Shift, responsibilities, or additional notes"
+                rows={4}
+              />
+            </div>
+          </div>
         </div>
+      </section>
 
-        <div className="form-group">
-          <label htmlFor="dateHired">
-            Date Hired
-          </label>
+      <div className="employee-form-actions">
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={onCancel}
+          disabled={isSubmitting}
+        >
+          <FaTimes />
+          Cancel
+        </button>
 
-          <input
-            id="dateHired"
-            type="date"
-            name="dateHired"
-            value={formData.dateHired}
-            onChange={handleChange}
-            required
-          />
-        </div>
-
-        <div className="form-group employee-full-width">
-          <label htmlFor="address">
-            Address
-          </label>
-
-          <input
-            id="address"
-            name="address"
-            value={formData.address}
-            onChange={handleChange}
-            placeholder="Employee address"
-          />
-        </div>
-
-        <div className="form-group employee-full-width">
-          <label htmlFor="notes">
-            Notes
-          </label>
-
-          <textarea
-            id="notes"
-            name="notes"
-            value={formData.notes}
-            onChange={handleChange}
-            placeholder="Shift, responsibilities, or additional notes"
-          />
-        </div>
-      </div>
-
-      <div className="form-actions">
         <button
           type="submit"
           className="btn-primary"
           disabled={isSubmitting}
         >
+          <FaSave />
+
           {isSubmitting
             ? "Saving..."
             : selectedEmployee
-            ? "Update Employee"
-            : "Add Employee"}
+              ? "Update Employee"
+              : "Add Employee"}
         </button>
       </div>
     </form>

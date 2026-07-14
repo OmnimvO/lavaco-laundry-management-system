@@ -11,6 +11,15 @@ import {
 import { customerService } from "../services/customer.service.js";
 import { auditLogService } from "../services/auditLog.service.js";
 
+import {
+  normalizePhilippinePhone,
+  normalizeSearchText,
+} from "../utils/philippinePhone.js";
+
+import {
+  getAuthenticatedUserName,
+} from "../utils/authUser.js";
+
 function parseCustomerId(
   value: string | string[] | undefined
 ) {
@@ -42,7 +51,118 @@ function normalizeOptionalString(
   return trimmedValue || null;
 }
 
+function prepareCustomerData(
+  data: {
+    name: string;
+    phone?: unknown;
+    address?: unknown;
+  }
+) {
+  const name = data.name.trim();
+
+  const rawPhone =
+    normalizeOptionalString(
+      data.phone
+    );
+
+  const normalizedPhone =
+    normalizePhilippinePhone(
+      rawPhone
+    );
+
+  if (
+    rawPhone &&
+    !normalizedPhone
+  ) {
+    throw new Error(
+      "Please enter a valid Philippine mobile number."
+    );
+  }
+
+  const address =
+    normalizeOptionalString(
+      data.address
+    );
+
+  return {
+    name,
+
+    phone:
+      normalizedPhone,
+
+    normalizedPhone,
+
+    normalizedName:
+      normalizeSearchText(name),
+
+    address,
+
+    normalizedAddress:
+      normalizeSearchText(
+        address
+      ),
+  };
+}
+
 export const customerController = {
+
+  lookupCustomerByPhone: async (
+    req: Request,
+    res: Response
+  ) => {
+    try {
+      const rawPhone =
+        Array.isArray(req.query.phone)
+          ? req.query.phone[0]
+          : req.query.phone;
+
+      if (
+        typeof rawPhone !== "string" ||
+        !rawPhone.trim()
+      ) {
+        return res.status(400).json({
+          message:
+            "Phone number is required.",
+        });
+      }
+
+      const normalizedPhone =
+        normalizePhilippinePhone(
+          rawPhone
+        );
+
+      if (!normalizedPhone) {
+        return res.status(400).json({
+          message:
+            "Please enter a valid Philippine mobile number.",
+        });
+      }
+
+      const customer =
+        await customerService.findCustomerByNormalizedPhone(
+          normalizedPhone
+        );
+
+      return res.json({
+        found:
+          Boolean(customer),
+
+        customer:
+          customer ?? null,
+      });
+    } catch (error) {
+      console.error(
+        "Customer lookup error:",
+        error
+      );
+
+      return res.status(500).json({
+        message:
+          "Failed to look up customer.",
+      });
+    }
+  },
+
   createCustomer: async (
     req: Request,
     res: Response
@@ -64,23 +184,50 @@ export const customerController = {
         });
       }
 
-      const customer =
-        await customerService.createCustomer({
-          name: name.trim(),
-
-          phone:
-            normalizeOptionalString(
-              phone
-            ) ?? undefined,
-
-          address:
-            normalizeOptionalString(
-              address
-            ) ?? undefined,
+      const customerData =
+        prepareCustomerData({
+          name,
+          phone,
+          address,
         });
+
+      const duplicate =
+        await customerService.findDuplicateCustomer(
+          {
+            normalizedPhone:
+              customerData
+                .normalizedPhone,
+
+            normalizedName:
+              customerData
+                .normalizedName,
+
+            normalizedAddress:
+              customerData
+                .normalizedAddress,
+          }
+        );
+
+      if (duplicate) {
+        return res.status(409).json({
+          message:
+            "This customer already exists.",
+
+          customer: duplicate,
+        });
+      }
+
+      const customer =
+        await customerService.createCustomer(
+          customerData
+        );
+
+      const performedBy =
+        getAuthenticatedUserName(req);
 
       await auditLogService.recordAuditLogSafely({
         action: AuditAction.CREATE,
+
         entityType:
           AuditEntityType.CUSTOMER,
 
@@ -90,12 +237,14 @@ export const customerController = {
         description:
           `Customer ${customer.name} was created.`,
 
-        performedBy: "System",
+        performedBy,
 
         newData: {
           name: customer.name,
           phone: customer.phone,
           address: customer.address,
+          normalizedPhone:
+            customer.normalizedPhone,
         },
       });
 
@@ -108,9 +257,13 @@ export const customerController = {
         error
       );
 
-      return res.status(500).json({
-        message:
-          "Failed to create customer",
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to create customer";
+
+      return res.status(400).json({
+        message,
       });
     }
   },
@@ -207,18 +360,15 @@ export const customerController = {
         });
       }
 
-      const {
-        name,
-        phone,
-        address,
-      } = req.body;
+      const nextName =
+        req.body.name !== undefined
+          ? req.body.name
+          : existingCustomer.name;
 
       if (
-        name !== undefined &&
-        (
-          typeof name !== "string" ||
-          !name.trim()
-        )
+        typeof nextName !==
+          "string" ||
+        !nextName.trim()
       ) {
         return res.status(400).json({
           message:
@@ -226,33 +376,64 @@ export const customerController = {
         });
       }
 
-      const customer =
-        await customerService.updateCustomer(
-          id,
+      const nextPhone =
+        req.body.phone !== undefined
+          ? req.body.phone
+          : existingCustomer.phone;
+
+      const nextAddress =
+        req.body.address !== undefined
+          ? req.body.address
+          : existingCustomer.address;
+
+      const customerData =
+        prepareCustomerData({
+          name: nextName,
+          phone: nextPhone,
+          address:
+            nextAddress,
+        });
+
+      const duplicate =
+        await customerService.findDuplicateCustomer(
           {
-            name:
-              name !== undefined
-                ? name.trim()
-                : undefined,
+            normalizedPhone:
+              customerData
+                .normalizedPhone,
 
-            phone:
-              phone !== undefined
-                ? normalizeOptionalString(
-                    phone
-                  ) ?? undefined
-                : undefined,
+            normalizedName:
+              customerData
+                .normalizedName,
 
-            address:
-              address !== undefined
-                ? normalizeOptionalString(
-                    address
-                  ) ?? undefined
-                : undefined,
+            normalizedAddress:
+              customerData
+                .normalizedAddress,
+
+            excludeCustomerId: id,
           }
         );
 
+      if (duplicate) {
+        return res.status(409).json({
+          message:
+            "Another customer already uses these details.",
+
+          customer: duplicate,
+        });
+      }
+
+      const customer =
+        await customerService.updateCustomer(
+          id,
+          customerData
+        );
+
+      const performedBy =
+        getAuthenticatedUserName(req);
+
       await auditLogService.recordAuditLogSafely({
         action: AuditAction.UPDATE,
+
         entityType:
           AuditEntityType.CUSTOMER,
 
@@ -262,13 +443,15 @@ export const customerController = {
         description:
           `Customer ${existingCustomer.name} was updated.`,
 
-        performedBy: "System",
+        performedBy,
 
         previousData: {
           name:
             existingCustomer.name,
+
           phone:
             existingCustomer.phone,
+
           address:
             existingCustomer.address,
         },
@@ -287,9 +470,13 @@ export const customerController = {
         error
       );
 
-      return res.status(500).json({
-        message:
-          "Failed to update customer",
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to update customer";
+
+      return res.status(400).json({
+        message,
       });
     }
   },
@@ -322,12 +509,19 @@ export const customerController = {
         });
       }
 
-      await customerService.deleteCustomer(
-        id
-      );
+      const performedBy =
+        getAuthenticatedUserName(req);
+
+      const archivedCustomer =
+        await customerService.archiveCustomer(
+          id,
+          performedBy
+        );
 
       await auditLogService.recordAuditLogSafely({
-        action: AuditAction.DELETE,
+        action:
+          AuditAction.ARCHIVE,
+
         entityType:
           AuditEntityType.CUSTOMER,
 
@@ -338,34 +532,69 @@ export const customerController = {
           existingCustomer.name,
 
         description:
-          `Customer ${existingCustomer.name} was deleted.`,
+          `Customer ${existingCustomer.name} was archived.`,
 
-        performedBy: "System",
+        performedBy,
 
         previousData: {
           name:
             existingCustomer.name,
+
           phone:
             existingCustomer.phone,
+
           address:
             existingCustomer.address,
+
+          isArchived:
+            existingCustomer
+              .isArchived,
+        },
+
+        newData: {
+          name:
+            archivedCustomer.name,
+
+          phone:
+            archivedCustomer.phone,
+
+          address:
+            archivedCustomer.address,
+
+          isArchived:
+            archivedCustomer
+              .isArchived,
+
+          archivedAt:
+            archivedCustomer
+              .archivedAt
+              ?.toISOString(),
+
+          archivedBy:
+            archivedCustomer
+              .archivedBy,
         },
       });
 
       return res.json({
         message:
-          "Customer deleted successfully",
+          "Customer archived successfully",
+
+        customer:
+          archivedCustomer,
       });
     } catch (error) {
       console.error(
-        "Delete customer error:",
+        "Archive customer error:",
         error
       );
 
       return res.status(500).json({
         message:
-          "Failed to delete customer",
+          "Failed to archive customer",
       });
     }
   },
 };
+
+export default customerController;

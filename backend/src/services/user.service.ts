@@ -30,30 +30,42 @@ type UpdateUserData = {
   employeeId?: number | null;
 };
 
+const userSelection = {
+  id: true,
+  name: true,
+  email: true,
+  role: true,
+  status: true,
+  employeeId: true,
+
+  isArchived: true,
+  archivedAt: true,
+  archivedBy: true,
+
+  createdAt: true,
+  updatedAt: true,
+
+  employee: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      phone: true,
+      position: true,
+      status: true,
+      isArchived: true,
+    },
+  },
+} as const;
+
 export const userService = {
   getAllUsers: async () => {
     return prisma.user.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        employeeId: true,
-        createdAt: true,
-        updatedAt: true,
-
-        employee: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            position: true,
-            status: true,
-          },
-        },
+      where: {
+        isArchived: false,
       },
+
+      select: userSelection,
 
       orderBy: [
         {
@@ -67,55 +79,56 @@ export const userService = {
   },
 
   getUserById: async (
-    id: number
+    id: number,
+    includeArchived = false
   ) => {
-    return prisma.user.findUnique({
+    return prisma.user.findFirst({
       where: {
         id,
+
+        ...(includeArchived
+          ? {}
+          : {
+              isArchived: false,
+            }),
       },
 
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        employeeId: true,
-        createdAt: true,
-        updatedAt: true,
-
-        employee: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            position: true,
-            status: true,
-          },
-        },
-      },
+      select: userSelection,
     });
   },
 
   findUserByEmail: async (
-    email: string
+    email: string,
+    includeArchived = false
   ) => {
-    return prisma.user.findUnique({
+    return prisma.user.findFirst({
       where: {
         email: email
           .trim()
           .toLowerCase(),
+
+        ...(includeArchived
+          ? {}
+          : {
+              isArchived: false,
+            }),
       },
     });
   },
 
   findUserByEmployeeId: async (
-    employeeId: number
+    employeeId: number,
+    includeArchived = false
   ) => {
-    return prisma.user.findUnique({
+    return prisma.user.findFirst({
       where: {
         employeeId,
+
+        ...(includeArchived
+          ? {}
+          : {
+              isArchived: false,
+            }),
       },
     });
   },
@@ -149,27 +162,7 @@ export const userService = {
           data.employeeId ?? null,
       },
 
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        employeeId: true,
-        createdAt: true,
-        updatedAt: true,
-
-        employee: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            position: true,
-            status: true,
-          },
-        },
-      },
+      select: userSelection,
     });
   },
 
@@ -205,27 +198,7 @@ export const userService = {
           data.employeeId,
       },
 
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        employeeId: true,
-        createdAt: true,
-        updatedAt: true,
-
-        employee: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            position: true,
-            status: true,
-          },
-        },
-      },
+      select: userSelection,
     });
   },
 
@@ -248,33 +221,69 @@ export const userService = {
         passwordHash,
       },
 
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        employeeId: true,
-        updatedAt: true,
-      },
+      select: userSelection,
     });
   },
 
-  deleteUser: async (
-    id: number
+  archiveUser: async (
+    id: number,
+    archivedBy: string
   ) => {
-    return prisma.user.delete({
+    return prisma.user.update({
       where: {
         id,
       },
+
+      data: {
+        isArchived: true,
+        archivedAt: new Date(),
+        archivedBy,
+        status:
+          UserStatus.INACTIVE,
+      },
+
+      select: userSelection,
     });
   },
 
-  countActiveAdmins: async () => {
+  restoreUser: async (
+    id: number
+  ) => {
+    return prisma.user.update({
+      where: {
+        id,
+      },
+
+      data: {
+        isArchived: false,
+        archivedAt: null,
+        archivedBy: null,
+        status:
+          UserStatus.ACTIVE,
+      },
+
+      select: userSelection,
+    });
+  },
+
+  countActiveAdmins: async (
+    excludeUserId?: number
+  ) => {
     return prisma.user.count({
       where: {
         role: UserRole.ADMIN,
-        status: UserStatus.ACTIVE,
+        status:
+          UserStatus.ACTIVE,
+        isArchived: false,
+
+        ...(excludeUserId
+          ? {
+              id: {
+                not:
+                  excludeUserId,
+              },
+            }
+          : {}),
       },
     });
   },

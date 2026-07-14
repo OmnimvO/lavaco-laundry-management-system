@@ -12,6 +12,7 @@ import {
 
 import { employeeService } from "../services/employee.service.js";
 import { auditLogService } from "../services/auditLog.service.js";
+import { getAuthenticatedUserName } from "../utils/authUser.js";
 
 const VALID_POSITIONS = new Set(
   Object.values(EmployeePosition)
@@ -492,15 +493,20 @@ export const employeeController = {
         });
       }
 
-      await employeeService.deleteEmployee(
-        id
-      );
+      const performedBy =
+        getAuthenticatedUserName(req);
+
+      const archivedEmployee =
+        await employeeService.archiveEmployee(
+          id,
+          performedBy
+        );
 
       const fullName =
         `${existingEmployee.firstName} ${existingEmployee.lastName}`;
 
       await auditLogService.recordAuditLogSafely({
-        action: AuditAction.DELETE,
+        action: AuditAction.ARCHIVE,
         entityType: AuditEntityType.EMPLOYEE,
 
         entityId:
@@ -509,9 +515,9 @@ export const employeeController = {
         entityName: fullName,
 
         description:
-          `Employee ${fullName} was deleted.`,
+          `Employee ${fullName} was archived.`,
 
-        performedBy: "System",
+        performedBy,
 
         previousData: {
           firstName:
@@ -530,22 +536,50 @@ export const employeeController = {
             existingEmployee.dateHired.toISOString(),
           notes:
             existingEmployee.notes,
+          isArchived:
+            existingEmployee.isArchived,
+        },
+
+        newData: {
+          firstName:
+            archivedEmployee.firstName,
+          lastName:
+            archivedEmployee.lastName,
+          phone:
+            archivedEmployee.phone,
+          address:
+            archivedEmployee.address,
+          position:
+            archivedEmployee.position,
+          status:
+            archivedEmployee.status,
+          dateHired:
+            archivedEmployee.dateHired.toISOString(),
+          notes:
+            archivedEmployee.notes,
+          isArchived:
+            archivedEmployee.isArchived,
+          archivedAt:
+            archivedEmployee.archivedAt?.toISOString(),
+          archivedBy:
+            archivedEmployee.archivedBy,
         },
       });
 
       return res.json({
         message:
-          "Employee deleted successfully",
+          "Employee archived successfully",
+        employee: archivedEmployee,
       });
     } catch (error) {
       console.error(
-        "Delete employee error:",
+        "Archive employee error:",
         error
       );
 
       return res.status(500).json({
         message:
-          "Failed to delete employee",
+          "Failed to archive employee",
       });
     }
   },

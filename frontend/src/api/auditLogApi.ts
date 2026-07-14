@@ -1,54 +1,84 @@
-import type { AuditLog } from "../types/auditLog";
+import type {
+  AuditLog,
+} from "../types/auditLog";
 
 const API_URL =
   "http://localhost:3000/api/audit-logs";
 
-async function parseErrorMessage(
-  response: Response
-) {
-  try {
-    const errorData =
-      await response.json();
-
-    return (
-      errorData.message ||
-      "Something went wrong while loading audit logs."
-    );
-  } catch {
-    return (
-      "Something went wrong while loading audit logs."
+function getAuthHeaders(
+  token: string | undefined
+): HeadersInit {
+  if (
+    typeof token !== "string" ||
+    !token.trim()
+  ) {
+    throw new Error(
+      "Your session is unavailable. Please log in again."
     );
   }
+
+  return {
+    Authorization:
+      `Bearer ${token}`,
+  };
 }
 
-export async function getAuditLogs(): Promise<
-  AuditLog[]
-> {
-  const response = await fetch(API_URL);
+async function parseResponse<T>(
+  response: Response
+): Promise<T> {
+  let data: unknown;
+
+  try {
+    data =
+      await response.json();
+  } catch {
+    data = null;
+  }
 
   if (!response.ok) {
     const message =
-      await parseErrorMessage(response);
+      typeof data === "object" &&
+      data !== null &&
+      "message" in data &&
+      typeof data.message ===
+        "string"
+        ? data.message
+        : "Something went wrong while loading audit logs.";
 
     throw new Error(message);
   }
 
-  return response.json();
+  return data as T;
+}
+
+export async function getAuditLogs(
+  token: string
+): Promise<AuditLog[]> {
+  const response =
+    await fetch(API_URL, {
+      headers:
+        getAuthHeaders(token),
+    });
+
+  return parseResponse<
+    AuditLog[]
+  >(response);
 }
 
 export async function getAuditLogById(
-  id: number
+  id: number,
+  token: string
 ): Promise<AuditLog> {
-  const response = await fetch(
-    `${API_URL}/${id}`
-  );
+  const response =
+    await fetch(
+      `${API_URL}/${id}`,
+      {
+        headers:
+          getAuthHeaders(token),
+      }
+    );
 
-  if (!response.ok) {
-    const message =
-      await parseErrorMessage(response);
-
-    throw new Error(message);
-  }
-
-  return response.json();
+  return parseResponse<
+    AuditLog
+  >(response);
 }

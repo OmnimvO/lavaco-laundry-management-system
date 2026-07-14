@@ -4,30 +4,42 @@ import type {
   Response,
 } from "express";
 
-import type { UserRole } from "../generated/prisma/client.js";
+import {
+  UserRole,
+} from "../generated/prisma/client.js";
 
 export function requireRole(
   ...allowedRoles: UserRole[]
 ) {
   return (
-    req: Request,
-    res: Response,
+    request: Request,
+    response: Response,
     next: NextFunction
   ) => {
-    if (!req.user) {
-      return res.status(401).json({
-        message: "Not authenticated",
+    if (!request.user) {
+      return response.status(401).json({
+        message:
+          "Not authenticated.",
+      });
+    }
+
+    if (
+      allowedRoles.length === 0
+    ) {
+      return response.status(500).json({
+        message:
+          "No roles were configured for this route.",
       });
     }
 
     if (
       !allowedRoles.includes(
-        req.user.role
+        request.user.role
       )
     ) {
-      return res.status(403).json({
+      return response.status(403).json({
         message:
-          "You do not have permission to access this resource",
+          "You do not have permission to access this resource.",
       });
     }
 

@@ -17,7 +17,8 @@ async function parseResponse<T>(
   let data: unknown;
 
   try {
-    data = await response.json();
+    data =
+      await response.json();
   } catch {
     data = null;
   }
@@ -27,7 +28,8 @@ async function parseResponse<T>(
       typeof data === "object" &&
       data !== null &&
       "message" in data &&
-      typeof data.message === "string"
+      typeof data.message ===
+        "string"
         ? data.message
         : "Settings request failed.";
 
@@ -37,46 +39,68 @@ async function parseResponse<T>(
   return data as T;
 }
 
+function getAuthHeaders(
+  token:
+    | string
+    | undefined,
+  includeJson = false
+): HeadersInit {
+  if (
+    typeof token !== "string" ||
+    !token.trim()
+  ) {
+    throw new Error(
+      "Your session is unavailable. Please log in again."
+    );
+  }
+
+  return {
+    ...(includeJson
+      ? {
+          "Content-Type":
+            "application/json",
+        }
+      : {}),
+
+    Authorization:
+      `Bearer ${token}`,
+  };
+}
+
 export async function getSettings(
   token: string
 ): Promise<ShopSettings> {
-  const response = await fetch(
-    API_URL,
-    {
-      headers: {
-        Authorization:
-          `Bearer ${token}`,
-      },
-    }
-  );
+  const response =
+    await fetch(API_URL, {
+      headers:
+        getAuthHeaders(token),
+    });
 
-  return parseResponse<ShopSettings>(
-    response
-  );
+  return parseResponse<
+    ShopSettings
+  >(response);
 }
 
 export async function updateSettings(
-  data: UpdateShopSettingsData,
+  data:
+    UpdateShopSettingsData,
   token: string
 ): Promise<UpdateSettingsResponse> {
-  const response = await fetch(
-    API_URL,
-    {
+  const response =
+    await fetch(API_URL, {
       method: "PUT",
 
-      headers: {
-        "Content-Type":
-          "application/json",
+      headers:
+        getAuthHeaders(
+          token,
+          true
+        ),
 
-        Authorization:
-          `Bearer ${token}`,
-      },
+      body:
+        JSON.stringify(data),
+    });
 
-      body: JSON.stringify(data),
-    }
-  );
-
-  return parseResponse<UpdateSettingsResponse>(
-    response
-  );
+  return parseResponse<
+    UpdateSettingsResponse
+  >(response);
 }

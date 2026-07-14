@@ -28,6 +28,12 @@ enum PaymentStatus {
   UNPAID
 }
 
+enum RefundStatus {
+  NOT_REQUIRED
+  PENDING
+  REFUNDED
+}
+
 enum OrderStatus {
   RECEIVED
   WASHING
@@ -56,16 +62,29 @@ enum AuditAction {
   CREATE
   UPDATE
   DELETE
+  ARCHIVE
+  RESTORE
   STATUS_CHANGE
   PAYMENT_CHANGE
+  REFUND_CHANGE
   PRINT
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT
+  TANK_REPLACEMENT
 }
 
 enum AuditEntityType {
   ORDER
   CUSTOMER
   EMPLOYEE
+  INVENTORY
+  TANK_CYCLE
+  NOTIFICATION
+  USER
+  SETTINGS
   REPORT
+  ARCHIVE
 }
 
 enum UserRole {
@@ -78,21 +97,62 @@ enum UserStatus {
   INACTIVE
 }
 
+enum TankCycleStatus {
+  ACTIVE
+  REPLACED
+}
+
+enum NotificationType {
+  TANK_WARNING
+  TANK_REPLACEMENT_REQUIRED
+  LOW_INVENTORY
+  SYSTEM
+}
+
+enum InventoryCategory {
+  DETERGENT
+  FABRIC_SOFTENER
+  BLEACH
+  PACKAGING
+  HANGER
+  LAUNDRY_TAG
+  RECEIPT_PAPER
+  OTHER
+}
+
+enum InventoryMovementType {
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT
+  ORDER_USAGE
+  REVERSAL
+}
+
 model Customer {
-  id        Int      @id @default(autoincrement())
-  name      String
-  phone     String?
-  address   String?
-  createdAt DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  name            String
+  phone           String?
+  normalizedPhone String?  @unique
+  normalizedName  String?
+  address         String?
+  normalizedAddress String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  isArchived Boolean  @default(false)
+  archivedAt DateTime?
+  archivedBy String?
 
   orders Order[]
+
+  @@index([isArchived])
+  @@index([normalizedName, normalizedAddress])
 }
 
 model Order {
   id          Int    @id @default(autoincrement())
   orderNumber String @unique
 
-  // Existing customer OR walk-in customer
   customerId            Int?
   walkInCustomerName    String?
   walkInCustomerPhone   String?
@@ -100,50 +160,59 @@ model Order {
 
   customer Customer? @relation(fields: [customerId], references: [id])
 
-  // Laundry weight and load calculation
   laundryWeight Float
   loadCount     Int
 
   hasMixedWhiteColor Boolean @default(false)
   instructions       String?
 
-  // Laundry service
   serviceType         ServiceType
   servicePricePerLoad Float
   serviceSubtotal     Float
 
-  // Rinse cycles
-  // 2 rinses are included.
-  // 3, 4, or 5 rinses have a flat ₱20 charge.
   rinseCycles Int   @default(2)
   rinseFee    Float @default(0)
 
-  // Soap / detergent
   soapQuantity Int   @default(0)
   soapPrice    Float @default(0)
 
-  // Fabric softener
   softenerQuantity Int   @default(0)
   softenerPrice    Float @default(0)
 
-  // Pickup / delivery
   fulfillmentType FulfillmentType
-  deliveryFee     Float           @default(0)
+  deliveryFee     Float @default(0)
 
-  // Staff
   receivedBy String?
   claimedBy  String?
 
-  // Payment
   totalPrice    Float
   paymentStatus PaymentStatus @default(UNPAID)
   paidAt        DateTime?
 
-  // Workflow
+  refundStatus RefundStatus @default(NOT_REQUIRED)
+  refundAmount Float        @default(0)
+  refundedAt   DateTime?
+  refundedBy   String?
+
   status OrderStatus @default(RECEIVED)
+
+  cancellationReason String?
+  cancelledAt        DateTime?
+  cancelledBy        String?
+
+  isArchived Boolean  @default(false)
+  archivedAt DateTime?
+  archivedBy String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  tankLoadEntries TankLoadEntry[]
+  inventoryMovements InventoryMovement[]
+
+  @@index([status, paymentStatus])
+  @@index([isArchived])
+  @@index([createdAt])
 }
 
 model OrderCounter {
@@ -162,10 +231,17 @@ model Employee {
   dateHired DateTime
   notes     String?
 
+  isArchived Boolean  @default(false)
+  archivedAt DateTime?
+  archivedBy String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   user User?
+
+  @@index([isArchived])
+  @@index([status])
 }
 
 model AuditLog {
@@ -177,13 +253,15 @@ model AuditLog {
   entityName String?
 
   description String
-
   performedBy String?
 
   previousData Json?
   newData      Json?
 
   createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }
 
 model User {
@@ -198,8 +276,18 @@ model User {
   employeeId Int?      @unique
   employee   Employee? @relation(fields: [employeeId], references: [id])
 
+  isArchived Boolean  @default(false)
+  archivedAt DateTime?
+  archivedBy String?
+
+  notificationReads NotificationRead[]
+  targetedNotifications Notification[] @relation("TargetedNotifications")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([isArchived])
+  @@index([role, status])
 }
 
 model ShopSettings {
@@ -210,24 +298,165 @@ model ShopSettings {
   contactNumber String?
   receiptFooter String @default("Thank you for choosing Lava Co. Laundry Hub!")
 
-  completeServicePrice Float @default(150)
-  washAndDryPrice      Float @default(120)
-  washOnlyPrice        Float @default(70)
+  completeServicePrice Float @default(160)
+  washAndDryPrice      Float @default(140)
+  washOnlyPrice        Float @default(60)
   dryOnlyPrice         Float @default(70)
   dryAndFoldPrice      Float @default(100)
-  foldOnlyPrice        Float @default(40)
+  foldOnlyPrice        Float @default(20)
 
   extraRinseFee Float @default(20)
 
   soapPrice     Float @default(20)
   softenerPrice Float @default(15)
 
-  pickupOnlyFee       Float @default(0)
-  deliveryOnlyFee     Float @default(0)
+  pickupOnlyFee        Float @default(0)
+  deliveryOnlyFee      Float @default(0)
   pickupAndDeliveryFee Float @default(0)
 
   maximumWeightPerLoad Float @default(8)
 
+  maximumLoadsPerTankCycle Int @default(30)
+  tankWarningThreshold     Int @default(25)
+
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+model TankCycle {
+  id Int @id @default(autoincrement())
+
+  status       TankCycleStatus @default(ACTIVE)
+  maximumLoads Int
+  currentLoads Int             @default(0)
+
+  startedAt DateTime @default(now())
+
+  replacedAt    DateTime?
+  replacedBy    String?
+  replacementNotes String?
+
+  loadEntries TankLoadEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([startedAt])
+}
+
+model TankLoadEntry {
+  id Int @id @default(autoincrement())
+
+  tankCycleId Int
+  tankCycle   TankCycle @relation(fields: [tankCycleId], references: [id])
+
+  orderId Int
+  order   Order @relation(fields: [orderId], references: [id])
+
+  loads Int
+
+  countedAt DateTime @default(now())
+  countedBy String?
+
+  isReversed    Boolean  @default(false)
+  reversedAt    DateTime?
+  reversedBy    String?
+  reversalReason String?
+
+  @@unique([orderId])
+  @@index([tankCycleId, isReversed])
+}
+
+model Notification {
+  id Int @id @default(autoincrement())
+
+  type    NotificationType
+  title   String
+  message String
+
+  targetRole UserRole?
+  targetUserId Int?
+  targetUser   User? @relation("TargetedNotifications", fields: [targetUserId], references: [id])
+
+  relatedEntityType AuditEntityType?
+  relatedEntityId   Int?
+
+  isResolved Boolean @default(false)
+  resolvedAt DateTime?
+  resolvedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reads NotificationRead[]
+
+  @@index([isResolved, createdAt])
+  @@index([targetRole])
+  @@index([targetUserId])
+}
+
+model NotificationRead {
+  id Int @id @default(autoincrement())
+
+  notificationId Int
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  readAt DateTime @default(now())
+
+  @@unique([notificationId, userId])
+  @@index([userId, readAt])
+}
+
+model InventoryItem {
+  id Int @id @default(autoincrement())
+
+  name        String
+  category    InventoryCategory
+  unit        String
+  quantity    Float @default(0)
+  reorderLevel Float @default(0)
+
+  supplierName    String?
+  supplierContact String?
+  notes           String?
+
+  isActive   Boolean @default(true)
+  isArchived Boolean @default(false)
+  archivedAt DateTime?
+  archivedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  movements InventoryMovement[]
+
+  @@index([isArchived, isActive])
+  @@index([category])
+}
+
+model InventoryMovement {
+  id Int @id @default(autoincrement())
+
+  inventoryItemId Int
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  movementType InventoryMovementType
+  quantity     Float
+  previousQuantity Float
+  newQuantity      Float
+
+  reason      String?
+  performedBy String?
+
+  orderId Int?
+  order   Order? @relation(fields: [orderId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([inventoryItemId, createdAt])
+  @@index([orderId])
 }

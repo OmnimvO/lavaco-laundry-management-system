@@ -1,9 +1,14 @@
-import type { Order } from "../types/order";
+import type {
+  Order,
+} from "../types/order";
 
-const API_URL = "http://localhost:3000/api/orders";
+const API_URL =
+  "http://localhost:3000/api/orders";
 
 export type OrderPayload = {
-  customerId?: number | null;
+  customerId?:
+    | number
+    | null;
 
   walkInCustomerName?: string;
   walkInCustomerPhone?: string;
@@ -32,82 +37,137 @@ type DeleteOrderResponse = {
   message: string;
 };
 
-async function parseErrorMessage(response: Response): Promise<string> {
+async function parseResponse<T>(
+  response: Response
+): Promise<T> {
+  let data: unknown;
+
   try {
-    const errorData = (await response.json()) as {
-      message?: string;
-    };
-
-    return (
-      errorData.message ??
-      "Something went wrong while processing the order."
-    );
+    data =
+      await response.json();
   } catch {
-    return "Something went wrong while processing the order.";
+    data = null;
   }
-}
-
-export async function getOrders(): Promise<Order[]> {
-  const response = await fetch(API_URL);
 
   if (!response.ok) {
-    const message = await parseErrorMessage(response);
+    const message =
+      typeof data === "object" &&
+      data !== null &&
+      "message" in data &&
+      typeof data.message ===
+        "string"
+        ? data.message
+        : "Something went wrong while processing the order.";
+
     throw new Error(message);
   }
 
-  return (await response.json()) as Order[];
+  return data as T;
+}
+
+function getHeaders(
+  token: string,
+  includeJson = false
+): HeadersInit {
+  if (!token.trim()) {
+    throw new Error(
+      "Your session is unavailable. Please log in again."
+    );
+  }
+
+  return {
+    ...(includeJson
+      ? {
+          "Content-Type":
+            "application/json",
+        }
+      : {}),
+
+    Authorization:
+      `Bearer ${token}`,
+  };
+}
+
+export async function getOrders(
+  token: string
+): Promise<Order[]> {
+  const response =
+    await fetch(API_URL, {
+      headers:
+        getHeaders(token),
+    });
+
+  return parseResponse<
+    Order[]
+  >(response);
 }
 
 export async function createOrder(
-  data: OrderPayload
+  data: OrderPayload,
+  token: string
 ): Promise<Order> {
-  const response = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
+  const response =
+    await fetch(API_URL, {
+      method: "POST",
 
-  if (!response.ok) {
-    const message = await parseErrorMessage(response);
-    throw new Error(message);
-  }
+      headers:
+        getHeaders(
+          token,
+          true
+        ),
 
-  return (await response.json()) as Order;
+      body:
+        JSON.stringify(data),
+    });
+
+  return parseResponse<
+    Order
+  >(response);
 }
 
 export async function updateOrder(
   id: number,
-  data: OrderPayload
+  data: OrderPayload,
+  token: string
 ): Promise<Order> {
-  const response = await fetch(`${API_URL}/${id}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
+  const response =
+    await fetch(
+      `${API_URL}/${id}`,
+      {
+        method: "PUT",
 
-  if (!response.ok) {
-    const message = await parseErrorMessage(response);
-    throw new Error(message);
-  }
+        headers:
+          getHeaders(
+            token,
+            true
+          ),
 
-  return (await response.json()) as Order;
+        body:
+          JSON.stringify(data),
+      }
+    );
+
+  return parseResponse<
+    Order
+  >(response);
 }
 
 export async function deleteOrder(
-  id: number
+  id: number,
+  token: string
 ): Promise<DeleteOrderResponse> {
-  const response = await fetch(`${API_URL}/${id}`, {
-    method: "DELETE",
-  });
+  const response =
+    await fetch(
+      `${API_URL}/${id}`,
+      {
+        method: "DELETE",
 
-  if (!response.ok) {
-    const message = await parseErrorMessage(response);
-    throw new Error(message);
-  }
+        headers:
+          getHeaders(token),
+      }
+    );
 
-  return (await response.json()) as DeleteOrderResponse;
+  return parseResponse<
+    DeleteOrderResponse
+  >(response);
 }

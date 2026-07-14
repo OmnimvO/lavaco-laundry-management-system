@@ -37,9 +37,24 @@ export type Order = {
   claimedBy?: string | null;
 
   totalPrice: number;
+
   paymentStatus: string;
   paidAt?: string | null;
+
   status: string;
+
+  cancellationReason?: string | null;
+  cancelledAt?: string | null;
+  cancelledBy?: string | null;
+
+  refundStatus?: string;
+  refundAmount?: number;
+  refundedAt?: string | null;
+  refundedBy?: string | null;
+
+  isArchived?: boolean;
+  archivedAt?: string | null;
+  archivedBy?: string | null;
 
   createdAt: string;
   updatedAt?: string;

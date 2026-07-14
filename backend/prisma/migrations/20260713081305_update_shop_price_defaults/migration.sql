@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "ShopSettings" ALTER COLUMN "completeServicePrice" SET DEFAULT 160,
+ALTER COLUMN "washAndDryPrice" SET DEFAULT 140,
+ALTER COLUMN "washOnlyPrice" SET DEFAULT 60,
+ALTER COLUMN "foldOnlyPrice" SET DEFAULT 20;

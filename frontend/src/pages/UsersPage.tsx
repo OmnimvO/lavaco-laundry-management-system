@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -133,62 +134,82 @@ function UsersPage() {
     }, 3000);
   }
 
-  async function loadData() {
-    if (!token) {
-      return;
-    }
+  const loadData =
+    useCallback(async () => {
+      if (
+        typeof token !== "string" ||
+        !token.trim()
+      ) {
+        setLoading(false);
 
-    try {
-      setLoading(true);
+        showToast(
+          "Your session is unavailable. Please log in again.",
+          "error"
+        );
 
-      const [
-        usersData,
-        employeesData,
-      ] = await Promise.all([
-        getUsers(token),
-        getEmployees(),
-      ]);
+        return;
+      }
 
-      setUsers(
-        Array.isArray(usersData)
-          ? usersData
-          : []
-      );
+      try {
+        setLoading(true);
 
-      setEmployees(
-        Array.isArray(employeesData)
-          ? employeesData
-          : []
-      );
-    } catch (error) {
-      console.error(
-        "Failed to load user management data:",
-        error
-      );
+        const [
+          usersData,
+          employeesData,
+        ] = await Promise.all([
+          getUsers(token),
+          getEmployees(token),
+        ]);
 
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "Failed to load user accounts.",
-        "error"
-      );
+        setUsers(
+          Array.isArray(usersData)
+            ? usersData
+            : []
+        );
 
-      setUsers([]);
-    } finally {
-      setLoading(false);
-    }
-  }
+        setEmployees(
+          Array.isArray(employeesData)
+            ? employeesData
+            : []
+        );
+      } catch (error) {
+        console.error(
+          "Failed to load user management data:",
+          error
+        );
+
+        showToast(
+          error instanceof Error
+            ? error.message
+            : "Failed to load user accounts.",
+          "error"
+        );
+
+        setUsers([]);
+        setEmployees([]);
+      } finally {
+        setLoading(false);
+      }
+    }, [token]);
 
   useEffect(() => {
-    loadData();
-  }, [token]);
+    void loadData();
+  }, [loadData]);
 
   async function handleCreateUser(
     data:
       | CreateUserData
       | UpdateUserData
   ) {
-    if (!token) {
+    if (
+      typeof token !== "string" ||
+      !token.trim()
+    ) {
+      showToast(
+        "Your session is unavailable. Please log in again.",
+        "error"
+      );
+
       return;
     }
 
@@ -223,9 +244,20 @@ function UsersPage() {
       | UpdateUserData
   ) {
     if (
-      !token ||
       !selectedUser
     ) {
+      return;
+    }
+
+    if (
+      typeof token !== "string" ||
+      !token.trim()
+    ) {
+      showToast(
+        "Your session is unavailable. Please log in again.",
+        "error"
+      );
+
       return;
     }
 
@@ -257,9 +289,20 @@ function UsersPage() {
 
   async function handleResetPassword() {
     if (
-      !token ||
       !resetPasswordUser
     ) {
+      return;
+    }
+
+    if (
+      typeof token !== "string" ||
+      !token.trim()
+    ) {
+      showToast(
+        "Your session is unavailable. Please log in again.",
+        "error"
+      );
+
       return;
     }
 
@@ -313,13 +356,21 @@ function UsersPage() {
   async function handleDeleteUser(
     user: UserAccount
   ) {
-    if (!token) {
+    if (
+      typeof token !== "string" ||
+      !token.trim()
+    ) {
+      showToast(
+        "Your session is unavailable. Please log in again.",
+        "error"
+      );
+
       return;
     }
 
     const confirmed =
       window.confirm(
-        `Delete the account for ${user.name}?`
+        `Archive the account for ${user.name}? It can be restored later from Settings → Archives.`
       );
 
     if (!confirmed) {
@@ -335,7 +386,7 @@ function UsersPage() {
       await loadData();
 
       showToast(
-        "User account deleted successfully!"
+        "User account archived successfully!"
       );
     } catch (error) {
       console.error(error);
@@ -736,10 +787,10 @@ function UsersPage() {
                             className="icon-button delete-button"
                             title={
                               isOwnAccount
-                                ? "You cannot delete your own account"
-                                : "Delete Account"
+                                ? "You cannot archive your own account"
+                                : "Archive Account"
                             }
-                            aria-label={`Delete ${user.name}`}
+                            aria-label={`Archive ${user.name}`}
                             disabled={isOwnAccount}
                             onClick={() =>
                               handleDeleteUser(

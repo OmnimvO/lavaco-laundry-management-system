@@ -1,12 +1,25 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
 
 import {
+  FaArrowDown,
+  FaClock,
+  FaEdit,
   FaEye,
+  FaFileAlt,
+  FaFilter,
+  FaMoneyBillWave,
+  FaPlusCircle,
+  FaPrint,
+  FaSearch,
+  FaSyncAlt,
+  FaTrash,
   FaUndoAlt,
+  FaUser,
 } from "react-icons/fa";
 
 import { getAuditLogs } from "../api/auditLogApi";
@@ -19,6 +32,16 @@ import {
 
 import Modal from "../components/Modal";
 import Toast from "../components/Toast";
+
+import {
+  useAuth,
+} from "../hooks/useAuth";
+
+type AuditSortOption =
+  | "NEWEST"
+  | "OLDEST"
+  | "ACTION_AZ"
+  | "ENTITY_AZ";
 
 function getLabel(
   options: {
@@ -36,7 +59,13 @@ function getLabel(
 }
 
 function formatDateTime(value: string) {
-  return new Date(value).toLocaleString(
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Invalid date";
+  }
+
+  return date.toLocaleString(
     "en-PH",
     {
       year: "numeric",
@@ -46,6 +75,70 @@ function formatDateTime(value: string) {
       minute: "2-digit",
     }
   );
+}
+
+function formatRelativeTime(
+  value: string
+) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Unknown time";
+  }
+
+  const difference =
+    Date.now() - date.getTime();
+
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (difference < minute) {
+    return "Just now";
+  }
+
+  if (difference < hour) {
+    const minutes = Math.floor(
+      difference / minute
+    );
+
+    return `${minutes} minute${
+      minutes === 1 ? "" : "s"
+    } ago`;
+  }
+
+  if (difference < day) {
+    const hours = Math.floor(
+      difference / hour
+    );
+
+    return `${hours} hour${
+      hours === 1 ? "" : "s"
+    } ago`;
+  }
+
+  const days = Math.floor(
+    difference / day
+  );
+
+  if (days < 7) {
+    return `${days} day${
+      days === 1 ? "" : "s"
+    } ago`;
+  }
+
+  return formatDateTime(value);
+}
+
+function formatFieldName(
+  value: string
+) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) =>
+      letter.toUpperCase()
+    );
 }
 
 function formatValue(
@@ -107,12 +200,43 @@ function getChangedFields(
   );
 }
 
+function getInitials(
+  value?: string | null
+) {
+  const words = String(
+    value || "System"
+  )
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "S";
+  }
+
+  if (words.length === 1) {
+    return words[0]
+      .slice(0, 2)
+      .toUpperCase();
+  }
+
+  return `${words[0][0]}${
+    words[words.length - 1][0]
+  }`.toUpperCase();
+}
+
 function AuditLogsPage() {
+  const {
+    token,
+  } = useAuth();
   const [logs, setLogs] =
     useState<AuditLog[]>([]);
 
   const [loading, setLoading] =
     useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
 
   const [selectedLog, setSelectedLog] =
     useState<AuditLog | null>(null);
@@ -128,6 +252,9 @@ function AuditLogsPage() {
 
   const [dateFilter, setDateFilter] =
     useState("");
+
+  const [sortOption, setSortOption] =
+    useState<AuditSortOption>("NEWEST");
 
   const [toast, setToast] = useState<{
     message: string;
@@ -149,126 +276,272 @@ function AuditLogsPage() {
     }, 3000);
   }
 
-  async function loadAuditLogs() {
-    try {
-      setLoading(true);
+  const loadAuditLogs = useCallback(
+    async (
+      manualRefresh = false
+    ) => {
+      try {
+        if (manualRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
 
-      const data =
-        await getAuditLogs();
+        if (
+          typeof token !== "string" ||
+          !token.trim()
+        ) {
+          throw new Error(
+            "Your session is unavailable. Please log in again."
+          );
+        }
 
-      setLogs(
-        Array.isArray(data)
-          ? data
-          : []
-      );
-    } catch (error) {
-      console.error(
-        "Failed to load audit logs:",
-        error
-      );
+        const data =
+          await getAuditLogs(
+            token
+          );
 
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "Failed to load audit logs.",
-        "error"
-      );
+        setLogs(
+          Array.isArray(data)
+            ? data
+            : []
+        );
+      } catch (error) {
+        console.error(
+          "Failed to load audit logs:",
+          error
+        );
 
-      setLogs([]);
-    } finally {
-      setLoading(false);
-    }
-  }
+        showToast(
+          error instanceof Error
+            ? error.message
+            : "Failed to load audit logs.",
+          "error"
+        );
+
+        if (!manualRefresh) {
+          setLogs([]);
+        }
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [token]
+  );
 
   useEffect(() => {
-    loadAuditLogs();
-  }, []);
+    void loadAuditLogs(false);
+  }, [loadAuditLogs]);
 
-  const filteredLogs = useMemo(() => {
+  const displayedLogs = useMemo(() => {
     const normalizedSearch =
       searchTerm
         .trim()
         .toLowerCase();
 
-    return logs.filter((log) => {
-      const matchesSearch =
-        normalizedSearch === "" ||
-        String(
-          log.entityName ?? ""
-        )
-          .toLowerCase()
-          .includes(
+    const filtered = logs.filter(
+      (log) => {
+        const actionLabel =
+          getLabel(
+            AUDIT_ACTIONS,
+            log.action
+          ).toLowerCase();
+
+        const entityLabel =
+          getLabel(
+            AUDIT_ENTITY_TYPES,
+            log.entityType
+          ).toLowerCase();
+
+        const matchesSearch =
+          normalizedSearch === "" ||
+          String(
+            log.entityName ?? ""
+          )
+            .toLowerCase()
+            .includes(
+              normalizedSearch
+            ) ||
+          String(
+            log.description ?? ""
+          )
+            .toLowerCase()
+            .includes(
+              normalizedSearch
+            ) ||
+          String(
+            log.performedBy ?? ""
+          )
+            .toLowerCase()
+            .includes(
+              normalizedSearch
+            ) ||
+          actionLabel.includes(
             normalizedSearch
           ) ||
-        String(
-          log.description ?? ""
-        )
-          .toLowerCase()
-          .includes(
+          entityLabel.includes(
             normalizedSearch
           ) ||
-        String(
-          log.performedBy ?? ""
-        )
-          .toLowerCase()
-          .includes(
+          String(
+            log.entityId ?? ""
+          ).includes(
             normalizedSearch
           );
 
-      const matchesAction =
-        actionFilter === "ALL" ||
-        log.action === actionFilter;
+        const matchesAction =
+          actionFilter === "ALL" ||
+          log.action === actionFilter;
 
-      const matchesEntity =
-        entityFilter === "ALL" ||
-        log.entityType ===
-          entityFilter;
+        const matchesEntity =
+          entityFilter === "ALL" ||
+          log.entityType ===
+            entityFilter;
 
-      const matchesDate =
-        !dateFilter ||
-        new Date(log.createdAt)
-          .toISOString()
-          .slice(0, 10) ===
-          dateFilter;
+        const matchesDate =
+          !dateFilter ||
+          new Date(log.createdAt)
+            .toISOString()
+            .slice(0, 10) ===
+            dateFilter;
 
-      return (
-        matchesSearch &&
-        matchesAction &&
-        matchesEntity &&
-        matchesDate
-      );
-    });
+        return (
+          matchesSearch &&
+          matchesAction &&
+          matchesEntity &&
+          matchesDate
+        );
+      }
+    );
+
+    return [...filtered].sort(
+      (first, second) => {
+        if (
+          sortOption === "OLDEST"
+        ) {
+          return (
+            new Date(
+              first.createdAt
+            ).getTime() -
+            new Date(
+              second.createdAt
+            ).getTime()
+          );
+        }
+
+        if (
+          sortOption === "ACTION_AZ"
+        ) {
+          return getLabel(
+            AUDIT_ACTIONS,
+            first.action
+          ).localeCompare(
+            getLabel(
+              AUDIT_ACTIONS,
+              second.action
+            )
+          );
+        }
+
+        if (
+          sortOption === "ENTITY_AZ"
+        ) {
+          return getLabel(
+            AUDIT_ENTITY_TYPES,
+            first.entityType
+          ).localeCompare(
+            getLabel(
+              AUDIT_ENTITY_TYPES,
+              second.entityType
+            )
+          );
+        }
+
+        return (
+          new Date(
+            second.createdAt
+          ).getTime() -
+          new Date(
+            first.createdAt
+          ).getTime()
+        );
+      }
+    );
   }, [
     logs,
     searchTerm,
     actionFilter,
     entityFilter,
     dateFilter,
+    sortOption,
   ]);
 
-  const createCount = logs.filter(
-    (log) => log.action === "CREATE"
-  ).length;
+  const auditSummary =
+    useMemo(() => {
+      return {
+        total: logs.length,
 
-  const updateCount = logs.filter(
-    (log) =>
-      log.action === "UPDATE" ||
-      log.action ===
-        "STATUS_CHANGE" ||
-      log.action ===
-        "PAYMENT_CHANGE"
-  ).length;
+        create: logs.filter(
+          (log) =>
+            log.action === "CREATE"
+        ).length,
 
-  const deleteCount = logs.filter(
-    (log) => log.action === "DELETE"
-  ).length;
+        update: logs.filter(
+          (log) =>
+            log.action === "UPDATE"
+        ).length,
 
-  const printCount = logs.filter(
-    (log) => log.action === "PRINT"
-  ).length;
+        delete: logs.filter(
+          (log) =>
+            log.action === "DELETE"
+        ).length,
+
+        print: logs.filter(
+          (log) =>
+            log.action === "PRINT"
+        ).length,
+
+        status: logs.filter(
+          (log) =>
+            log.action ===
+            "STATUS_CHANGE"
+        ).length,
+
+        payment: logs.filter(
+          (log) =>
+            log.action ===
+            "PAYMENT_CHANGE"
+        ).length,
+      };
+    }, [logs]);
+
+  const hasActiveFilters =
+    searchTerm.trim() !== "" ||
+    actionFilter !== "ALL" ||
+    entityFilter !== "ALL" ||
+    dateFilter !== "" ||
+    sortOption !== "NEWEST";
+
+  function clearFilters() {
+    setSearchTerm("");
+    setActionFilter("ALL");
+    setEntityFilter("ALL");
+    setDateFilter("");
+    setSortOption("NEWEST");
+  }
 
   if (loading) {
-    return <p>Loading audit logs...</p>;
+    return (
+      <section className="audit-logs-page">
+        <div className="dashboard-loading">
+          <FaSyncAlt className="dashboard-spin" />
+
+          <span>
+            Loading audit logs...
+          </span>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -282,52 +555,129 @@ function AuditLogsPage() {
             in the system.
           </p>
         </div>
+
+        <button
+          type="button"
+          className="btn-secondary audit-refresh-button"
+          onClick={() =>
+            void loadAuditLogs(true)
+          }
+          disabled={refreshing}
+        >
+          <FaSyncAlt
+            className={
+              refreshing
+                ? "dashboard-spin"
+                : ""
+            }
+          />
+
+          {refreshing
+            ? "Refreshing..."
+            : "Refresh"}
+        </button>
       </div>
 
-      <div className="audit-summary-grid">
+      <div className="audit-summary-grid audit-summary-grid-expanded">
         <article className="audit-summary-card">
-          <span>Total Logs</span>
-          <strong>{logs.length}</strong>
+          <span>
+            <FaFileAlt />
+            Total Logs
+          </span>
+
+          <strong>
+            {auditSummary.total}
+          </strong>
         </article>
 
         <article className="audit-summary-card">
-          <span>Created</span>
-          <strong>{createCount}</strong>
+          <span>
+            <FaPlusCircle />
+            Created
+          </span>
+
+          <strong>
+            {auditSummary.create}
+          </strong>
         </article>
 
         <article className="audit-summary-card">
-          <span>Updated</span>
-          <strong>{updateCount}</strong>
+          <span>
+            <FaEdit />
+            Updated
+          </span>
+
+          <strong>
+            {auditSummary.update}
+          </strong>
         </article>
 
         <article className="audit-summary-card">
-          <span>Deleted</span>
-          <strong>{deleteCount}</strong>
+          <span>
+            <FaTrash />
+            Deleted
+          </span>
+
+          <strong>
+            {auditSummary.delete}
+          </strong>
         </article>
 
         <article className="audit-summary-card">
-          <span>Printed</span>
-          <strong>{printCount}</strong>
+          <span>
+            <FaPrint />
+            Printed
+          </span>
+
+          <strong>
+            {auditSummary.print}
+          </strong>
+        </article>
+
+        <article className="audit-summary-card">
+          <span>
+            <FaSyncAlt />
+            Status Changes
+          </span>
+
+          <strong>
+            {auditSummary.status}
+          </strong>
+        </article>
+
+        <article className="audit-summary-card">
+          <span>
+            <FaMoneyBillWave />
+            Payment Changes
+          </span>
+
+          <strong>
+            {auditSummary.payment}
+          </strong>
         </article>
       </div>
 
-      <div className="audit-toolbar">
+      <div className="audit-toolbar audit-toolbar-expanded">
         <div className="audit-filter audit-search">
           <label htmlFor="auditSearch">
             Search Logs
           </label>
 
-          <input
-            id="auditSearch"
-            type="search"
-            value={searchTerm}
-            onChange={(event) =>
-              setSearchTerm(
-                event.target.value
-              )
-            }
-            placeholder="Entity, description, or employee"
-          />
+          <div className="audit-search-input">
+            <FaSearch />
+
+            <input
+              id="auditSearch"
+              type="search"
+              value={searchTerm}
+              onChange={(event) =>
+                setSearchTerm(
+                  event.target.value
+                )
+              }
+              placeholder="User, action, entity, description, or record ID"
+            />
+          </div>
         </div>
 
         <div className="audit-filter">
@@ -409,38 +759,94 @@ function AuditLogsPage() {
           />
         </div>
 
-        <button
-          type="button"
-          className="icon-button reset-filter-button"
-          title="Reset Filters"
-          aria-label="Reset Filters"
-          onClick={() => {
-            setSearchTerm("");
-            setActionFilter("ALL");
-            setEntityFilter("ALL");
-            setDateFilter("");
-          }}
-        >
-          <FaUndoAlt />
-        </button>
+        <div className="audit-filter">
+          <label htmlFor="auditSort">
+            Sort By
+          </label>
+
+          <div className="sort-actions">
+            <select
+              id="auditSort"
+              value={sortOption}
+              onChange={(event) =>
+                setSortOption(
+                  event.target
+                    .value as AuditSortOption
+                )
+              }
+            >
+              <option value="NEWEST">
+                Newest First
+              </option>
+
+              <option value="OLDEST">
+                Oldest First
+              </option>
+
+              <option value="ACTION_AZ">
+                Action A–Z
+              </option>
+
+              <option value="ENTITY_AZ">
+                Entity A–Z
+              </option>
+            </select>
+
+            <button
+              type="button"
+              className="icon-button reset-filter-button"
+              title="Reset Filters"
+              aria-label="Reset Filters"
+              onClick={clearFilters}
+              disabled={
+                !hasActiveFilters
+              }
+            >
+              <FaUndoAlt />
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="audit-result-summary">
         Showing{" "}
         <strong>
-          {filteredLogs.length}
+          {displayedLogs.length}
         </strong>{" "}
         of{" "}
         <strong>{logs.length}</strong>{" "}
         logs
       </div>
 
-      {filteredLogs.length === 0 ? (
-        <p>
-          {logs.length === 0
-            ? "No audit logs available yet."
-            : "No audit logs match the current filters."}
-        </p>
+      {displayedLogs.length === 0 ? (
+        <div className="dashboard-empty-state">
+          <div className="dashboard-empty-icon">
+            <FaFileAlt />
+          </div>
+
+          <strong>
+            {logs.length === 0
+              ? "No audit logs yet"
+              : "No matching audit logs"}
+          </strong>
+
+          <p>
+            {logs.length === 0
+              ? "System activity will appear here as users create, update, print, or delete records."
+              : "Try changing or clearing the current audit filters."}
+          </p>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              className="clear-filter-button"
+              onClick={clearFilters}
+            >
+              <FaUndoAlt />
+              Clear Filters
+            </button>
+          )}
+        </div>
       ) : (
         <div className="table-wrapper">
           <table className="customer-table audit-table">
@@ -456,12 +862,22 @@ function AuditLogsPage() {
             </thead>
 
             <tbody>
-              {filteredLogs.map((log) => (
+              {displayedLogs.map((log) => (
                 <tr key={log.id}>
                   <td>
-                    {formatDateTime(
-                      log.createdAt
-                    )}
+                    <div className="audit-time-cell">
+                      <strong>
+                        {formatRelativeTime(
+                          log.createdAt
+                        )}
+                      </strong>
+
+                      <small>
+                        {formatDateTime(
+                          log.createdAt
+                        )}
+                      </small>
+                    </div>
                   </td>
 
                   <td>
@@ -476,28 +892,41 @@ function AuditLogsPage() {
                   </td>
 
                   <td>
-                    <strong>
+                    <span className="audit-entity-badge">
                       {getLabel(
                         AUDIT_ENTITY_TYPES,
                         log.entityType
                       )}
-                    </strong>
+                    </span>
 
                     <small className="table-subtext">
                       {log.entityName ||
                         (log.entityId
-                          ? `ID ${log.entityId}`
-                          : "No entity name")}
+                          ? `Record #${log.entityId}`
+                          : "No record name")}
                     </small>
                   </td>
 
-                  <td>
+                  <td className="audit-description-cell">
                     {log.description}
                   </td>
 
                   <td>
-                    {log.performedBy ||
-                      "System"}
+                    <div className="audit-user-cell">
+                      <span
+                        className="audit-user-avatar"
+                        aria-hidden="true"
+                      >
+                        {getInitials(
+                          log.performedBy
+                        )}
+                      </span>
+
+                      <strong>
+                        {log.performedBy ||
+                          "System"}
+                      </strong>
+                    </div>
                   </td>
 
                   <td>
@@ -527,23 +956,37 @@ function AuditLogsPage() {
             setSelectedLog(null)
           }
         >
-          <div className="audit-details">
-            <section className="order-details-section">
-              <h3>Activity</h3>
+          <div className="audit-details audit-details-upgraded">
+            <section className="audit-activity-card">
+              <div className="audit-activity-timeline">
+                <span className="audit-timeline-dot">
+                  <FaClock />
+                </span>
 
-              <div className="order-details-grid">
                 <div>
-                  <span>Action</span>
-                  <strong>
+                  <span>
                     {getLabel(
                       AUDIT_ACTIONS,
                       selectedLog.action
                     )}
-                  </strong>
-                </div>
+                  </span>
 
+                  <strong>
+                    {selectedLog.description}
+                  </strong>
+
+                  <small>
+                    {formatDateTime(
+                      selectedLog.createdAt
+                    )}
+                  </small>
+                </div>
+              </div>
+
+              <div className="audit-activity-meta">
                 <div>
                   <span>Entity</span>
+
                   <strong>
                     {getLabel(
                       AUDIT_ENTITY_TYPES,
@@ -553,85 +996,92 @@ function AuditLogsPage() {
                 </div>
 
                 <div>
-                  <span>Entity Name</span>
+                  <span>Record</span>
+
                   <strong>
                     {selectedLog.entityName ||
-                      "Not provided"}
+                      (selectedLog.entityId
+                        ? `#${selectedLog.entityId}`
+                        : "Not provided")}
                   </strong>
                 </div>
 
                 <div>
                   <span>Performed By</span>
+
                   <strong>
                     {selectedLog.performedBy ||
                       "System"}
-                  </strong>
-                </div>
-
-                <div className="details-full-width">
-                  <span>Date and Time</span>
-                  <strong>
-                    {formatDateTime(
-                      selectedLog.createdAt
-                    )}
-                  </strong>
-                </div>
-
-                <div className="details-full-width">
-                  <span>Description</span>
-                  <strong>
-                    {selectedLog.description}
                   </strong>
                 </div>
               </div>
             </section>
 
             <section className="order-details-section">
-              <h3>Changes</h3>
+              <h3>Recorded Changes</h3>
 
               {getChangedFields(
                 selectedLog.previousData,
                 selectedLog.newData
               ).length === 0 ? (
-                <p>
-                  No field-by-field changes were
-                  recorded for this action.
-                </p>
+                <div className="dashboard-empty-state">
+                  <strong>
+                    No field changes recorded
+                  </strong>
+
+                  <p>
+                    This action did not include
+                    before-and-after field data.
+                  </p>
+                </div>
               ) : (
-                <div className="audit-changes-list">
+                <div className="audit-changes-list audit-changes-list-upgraded">
                   {getChangedFields(
                     selectedLog.previousData,
                     selectedLog.newData
                   ).map((field) => (
-                    <div
+                    <article
                       key={field}
-                      className="audit-change-row"
+                      className="audit-change-card"
                     >
-                      <strong>{field}</strong>
+                      <h4>
+                        {formatFieldName(
+                          field
+                        )}
+                      </h4>
 
-                      <div>
-                        <span>Previous</span>
-                        <p>
-                          {formatValue(
-                            selectedLog
-                              .previousData?.[
-                              field
-                            ]
-                          )}
-                        </p>
-                      </div>
+                      <div className="audit-change-comparison">
+                        <div className="audit-change-value audit-change-before">
+                          <span>Before</span>
 
-                      <div>
-                        <span>New</span>
-                        <p>
-                          {formatValue(
-                            selectedLog.newData?.[
-                              field
-                            ]
-                          )}
-                        </p>
+                          <pre>
+                            {formatValue(
+                              selectedLog
+                                .previousData?.[
+                                field
+                              ]
+                            )}
+                          </pre>
+                        </div>
+
+                        <div className="audit-change-arrow">
+                          <FaArrowDown />
+                        </div>
+
+                        <div className="audit-change-value audit-change-after">
+                          <span>After</span>
+
+                          <pre>
+                            {formatValue(
+                              selectedLog
+                                .newData?.[
+                                field
+                              ]
+                            )}
+                          </pre>
+                        </div>
                       </div>
-                    </div>
+                    </article>
                   ))}
                 </div>
               )}

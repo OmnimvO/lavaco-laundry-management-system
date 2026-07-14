@@ -4,8 +4,14 @@ import {
   FulfillmentType,
   OrderStatus,
   PaymentStatus,
+  Prisma,
+  RefundStatus,
   ServiceType,
 } from "../generated/prisma/client.js";
+
+import {
+  findOrCreateWalkInCustomer,
+} from "./customerMatching.service.js";
 
 type CreateOrderData = {
   customerId?: number | null;
@@ -127,13 +133,48 @@ type UpdateOrderData = {
     PaymentStatus;
 
   paidAt?: Date | null;
+
+  refundStatus?: RefundStatus;
+  refundAmount?: number;
+  refundedAt?: Date | null;
+  refundedBy?: string | null;
+
+  cancellationReason?:
+    | string
+    | null;
+
+  cancelledAt?: Date | null;
+  cancelledBy?: string | null;
+
+  isArchived?: boolean;
+  archivedAt?: Date | null;
+  archivedBy?: string | null;
+};
+
+type UpdateCustomerReferenceData = {
+  customerId?: number | null;
+
+  walkInCustomerName?:
+    | string
+    | null;
+
+  walkInCustomerPhone?:
+    | string
+    | null;
+
+  walkInCustomerAddress?:
+    | string
+    | null;
 };
 
 const SETTINGS_ID = 1;
 
-async function getNextOrderNumber() {
+async function getNextOrderNumber(
+  transaction:
+    Prisma.TransactionClient
+) {
   const counter =
-    await prisma.orderCounter.upsert({
+    await transaction.orderCounter.upsert({
       where: {
         id: 1,
       },
@@ -155,6 +196,61 @@ async function getNextOrderNumber() {
   ).padStart(6, "0")}`;
 }
 
+async function resolveCustomerForOrder(
+  transaction:
+    Prisma.TransactionClient,
+
+  data: UpdateCustomerReferenceData
+) {
+  if (data.customerId) {
+    const existingCustomer =
+      await transaction.customer.findFirst({
+        where: {
+          id: data.customerId,
+          isArchived: false,
+        },
+      });
+
+    if (!existingCustomer) {
+      throw new Error(
+        "Selected customer was not found or is archived."
+      );
+    }
+
+    return {
+      customer:
+        existingCustomer,
+
+      wasCreated: false,
+
+      matchedBy:
+        "EXISTING_CUSTOMER" as const,
+    };
+  }
+
+  if (
+    !data.walkInCustomerName?.trim()
+  ) {
+    throw new Error(
+      "Walk-in customer name is required."
+    );
+  }
+
+  return findOrCreateWalkInCustomer(
+    transaction,
+    {
+      name:
+        data.walkInCustomerName,
+
+      phone:
+        data.walkInCustomerPhone,
+
+      address:
+        data.walkInCustomerAddress,
+    }
+  );
+}
+
 export const orderService = {
   getShopSettings: async () => {
     return prisma.shopSettings.upsert({
@@ -173,23 +269,74 @@ export const orderService = {
   createOrder: async (
     data: CreateOrderData
   ) => {
-    const orderNumber =
-      await getNextOrderNumber();
+    return prisma.$transaction(
+      async (transaction) => {
+        const customerResult =
+          await resolveCustomerForOrder(
+            transaction,
+            {
+              customerId:
+                data.customerId,
 
-    return prisma.order.create({
-      data: {
-        ...data,
-        orderNumber,
-      },
+              walkInCustomerName:
+                data.walkInCustomerName,
 
-      include: {
-        customer: true,
-      },
-    });
+              walkInCustomerPhone:
+                data.walkInCustomerPhone,
+
+              walkInCustomerAddress:
+                data.walkInCustomerAddress,
+            }
+          );
+
+        const orderNumber =
+          await getNextOrderNumber(
+            transaction
+          );
+
+        const order =
+          await transaction.order.create({
+            data: {
+              ...data,
+
+              orderNumber,
+
+              customerId:
+                customerResult
+                  .customer.id,
+
+              walkInCustomerName:
+                data.walkInCustomerName ??
+                null,
+
+              walkInCustomerPhone:
+                data.walkInCustomerPhone ??
+                null,
+
+              walkInCustomerAddress:
+                data.walkInCustomerAddress ??
+                null,
+            },
+
+            include: {
+              customer: true,
+            },
+          });
+
+        return {
+          order,
+          customerResult,
+        };
+      }
+    );
   },
 
   getAllOrders: async () => {
     return prisma.order.findMany({
+      where: {
+        isArchived: false,
+      },
+
       include: {
         customer: true,
       },
@@ -201,11 +348,18 @@ export const orderService = {
   },
 
   getOrderById: async (
-    id: number
+    id: number,
+    includeArchived = false
   ) => {
-    return prisma.order.findUnique({
+    return prisma.order.findFirst({
       where: {
         id,
+
+        ...(includeArchived
+          ? {}
+          : {
+              isArchived: false,
+            }),
       },
 
       include: {
@@ -218,22 +372,69 @@ export const orderService = {
     id: number,
     data: UpdateOrderData
   ) => {
-    return prisma.order.update({
-      where: {
-        id,
-      },
+    return prisma.$transaction(
+      async (transaction) => {
+        let resolvedCustomerId =
+          data.customerId;
 
-      data,
+        if (
+          data.customerId !==
+            undefined ||
+          data.walkInCustomerName !==
+            undefined
+        ) {
+          const customerResult =
+            await resolveCustomerForOrder(
+              transaction,
+              {
+                customerId:
+                  data.customerId,
 
-      include: {
-        customer: true,
-      },
-    });
+                walkInCustomerName:
+                  data.walkInCustomerName,
+
+                walkInCustomerPhone:
+                  data.walkInCustomerPhone,
+
+                walkInCustomerAddress:
+                  data.walkInCustomerAddress,
+              }
+            );
+
+          resolvedCustomerId =
+            customerResult.customer.id;
+        }
+
+        return transaction.order.update({
+          where: {
+            id,
+          },
+
+          data: {
+            ...data,
+
+            ...(resolvedCustomerId !==
+            undefined
+              ? {
+                  customerId:
+                    resolvedCustomerId,
+                }
+              : {}),
+          },
+
+          include: {
+            customer: true,
+          },
+        });
+      }
+    );
   },
 
   updateOrderStatus: async (
     id: number,
-    status: OrderStatus
+    status: OrderStatus,
+    additionalData:
+      Partial<UpdateOrderData> = {}
   ) => {
     return prisma.order.update({
       where: {
@@ -242,6 +443,7 @@ export const orderService = {
 
       data: {
         status,
+        ...additionalData,
       },
 
       include: {
@@ -250,13 +452,47 @@ export const orderService = {
     });
   },
 
-  deleteOrder: async (
-    id: number
+  archiveOrder: async (
+    id: number,
+    archivedBy: string
   ) => {
-    return prisma.order.delete({
+    return prisma.order.update({
       where: {
         id,
       },
+
+      data: {
+        isArchived: true,
+        archivedAt: new Date(),
+        archivedBy,
+      },
+
+      include: {
+        customer: true,
+      },
     });
   },
+
+  getValidRevenueOrders:
+    async () => {
+      return prisma.order.findMany({
+        where: {
+          paymentStatus:
+            PaymentStatus.PAID,
+
+          status: {
+            not:
+              OrderStatus.CANCELLED,
+          },
+        },
+
+        include: {
+          customer: true,
+        },
+
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
+    },
 };

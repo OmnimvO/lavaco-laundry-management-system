@@ -1,4 +1,8 @@
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import {
   createOrder,
   deleteOrder,
@@ -16,6 +20,11 @@ import Toast from "../components/Toast";
 import type { Order } from "../types/order";
 import type { Customer } from "../types/customer";
 import type { Employee } from "../types/employee";
+import type { DashboardNavigationRequest } from "../App";
+
+import {
+  useAuth,
+} from "../hooks/useAuth";
 
 import {
   FULFILLMENT_TYPES,
@@ -25,8 +34,11 @@ import {
 } from "../constants/order";
 
 import {
-  FaEye,
+  FaClipboardList,
   FaEdit,
+  FaEye,
+  FaFilter,
+  FaTimes,
   FaTrash,
   FaUndoAlt,
 } from "react-icons/fa";
@@ -54,7 +66,51 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString();
 }
 
-function OrdersPage() {
+type OrdersPageProps = {
+  dashboardRequest:
+    | Extract<
+        DashboardNavigationRequest,
+        { page: "orders" }
+      >
+    | null;
+};
+
+type DashboardOrderFilter =
+  | "ALL"
+  | "TODAY"
+  | "ACTIVE"
+  | "READY"
+  | "UNPAID";
+
+const ACTIVE_ORDER_STATUSES = [
+  "RECEIVED",
+  "WASHING",
+  "DRYING",
+  "FOLDING",
+  "READY_FOR_PICKUP",
+  "OUT_FOR_DELIVERY",
+];
+
+function isOrderFromToday(value: string) {
+  const orderDate = new Date(value);
+  const today = new Date();
+
+  return (
+    orderDate.getFullYear() ===
+      today.getFullYear() &&
+    orderDate.getMonth() ===
+      today.getMonth() &&
+    orderDate.getDate() ===
+      today.getDate()
+  );
+}
+
+function OrdersPage({
+  dashboardRequest,
+}: OrdersPageProps) {
+  const {
+    token,
+  } = useAuth();
   const [orders, setOrders] =
     useState<Order[]>([]);
 
@@ -97,6 +153,11 @@ function OrdersPage() {
   const [sortOption, setSortOption] =
     useState("NEWEST");
 
+  const [
+    dashboardFilter,
+    setDashboardFilter,
+  ] = useState<DashboardOrderFilter>("ALL");
+
   function showToast(
     message: string,
     type: "success" | "error" =
@@ -112,57 +173,93 @@ function OrdersPage() {
     }, 3000);
   }
 
-  async function loadData() {
-    setLoading(true);
+  const loadData =
+    useCallback(async () => {
+      if (!token) {
+        setLoading(false);
 
-    try {
-      const [
-        ordersData,
-        customersData,
-        employeesData,
-      ] = await Promise.all([
-        getOrders(),
-        getCustomers(),
-        getEmployees(),
-      ]);
+        showToast(
+          "Your session is unavailable. Please log in again.",
+          "error"
+        );
 
-      setOrders(
-        Array.isArray(ordersData)
-          ? ordersData
-          : []
-      );
+        return;
+      }
 
-      setCustomers(
-        Array.isArray(customersData)
-          ? customersData
-          : []
-      );
+      setLoading(true);
 
-      setEmployees(
-        Array.isArray(employeesData)
-          ? employeesData
-          : []
-      );
-    } catch (error) {
-      console.error(
-        "Failed to load order page data:",
-        error
-      );
+      try {
+        const [
+          ordersData,
+          customersData,
+          employeesData,
+        ] = await Promise.all([
+          getOrders(token),
+          getCustomers(token),
+          getEmployees(token),
+        ]);
 
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "Failed to load order page data.",
-        "error"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
+        setOrders(
+          Array.isArray(ordersData)
+            ? ordersData
+            : []
+        );
+
+        setCustomers(
+          Array.isArray(customersData)
+            ? customersData
+            : []
+        );
+
+        setEmployees(
+          Array.isArray(employeesData)
+            ? employeesData
+            : []
+        );
+      } catch (error) {
+        console.error(
+          "Failed to load order page data:",
+          error
+        );
+
+        showToast(
+          error instanceof Error
+            ? error.message
+            : "Failed to load order page data.",
+          "error"
+        );
+      } finally {
+        setLoading(false);
+      }
+    }, [token]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!dashboardRequest) {
+      return;
+    }
+
+    setSearchTerm("");
+    setStatusFilter("ALL");
+    setPaymentFilter("ALL");
+    setSortOption("NEWEST");
+
+    if (dashboardRequest.action === "CREATE") {
+      setDashboardFilter("ALL");
+      setSelectedOrder(null);
+      setViewOrder(null);
+      setIsCreateModalOpen(true);
+      return;
+    }
+
+    setIsCreateModalOpen(false);
+    setDashboardFilter(
+      dashboardRequest.action
+    );
+  }, [dashboardRequest]);
 
   async function handleCreateOrder(
     data: unknown
@@ -172,10 +269,19 @@ function OrdersPage() {
         typeof createOrder
       >[0];
 
+    if (!token) {
+      showToast(
+        "Your session is unavailable. Please log in again.",
+        "error"
+      );
+      return;
+    }
+
     try {
       const createdOrder =
         await createOrder(
-          orderPayload
+          orderPayload,
+          token
         );
 
       await loadData();
@@ -211,11 +317,20 @@ function OrdersPage() {
         typeof updateOrder
       >[1];
 
+    if (!token) {
+      showToast(
+        "Your session is unavailable. Please log in again.",
+        "error"
+      );
+      return;
+    }
+
     try {
       const updatedOrder =
         await updateOrder(
           selectedOrder.id,
-          orderPayload
+          orderPayload,
+          token
         );
 
       await loadData();
@@ -251,8 +366,19 @@ function OrdersPage() {
       return;
     }
 
+    if (!token) {
+      showToast(
+        "Your session is unavailable. Please log in again.",
+        "error"
+      );
+      return;
+    }
+
     try {
-      await deleteOrder(id);
+      await deleteOrder(
+        id,
+        token
+      );
       await loadData();
 
       if (viewOrder?.id === id) {
@@ -276,6 +402,7 @@ function OrdersPage() {
   }
 
   function openCreateModal() {
+    setDashboardFilter("ALL");
     setSelectedOrder(null);
     setViewOrder(null);
     setIsCreateModalOpen(true);
@@ -324,10 +451,30 @@ function OrdersPage() {
         order.paymentStatus ===
           paymentFilter;
 
+      const matchesDashboardFilter =
+        dashboardFilter === "ALL" ||
+        (dashboardFilter === "TODAY" &&
+          isOrderFromToday(
+            order.createdAt
+          )) ||
+        (dashboardFilter === "ACTIVE" &&
+          ACTIVE_ORDER_STATUSES.includes(
+            order.status
+          )) ||
+        (dashboardFilter === "READY" &&
+          (order.status ===
+            "READY_FOR_PICKUP" ||
+            order.status ===
+              "OUT_FOR_DELIVERY")) ||
+        (dashboardFilter === "UNPAID" &&
+          order.paymentStatus ===
+            "UNPAID");
+
       return (
         matchesSearch &&
         matchesStatus &&
-        matchesPayment
+        matchesPayment &&
+        matchesDashboardFilter
       );
     }
   );
@@ -420,6 +567,52 @@ function OrdersPage() {
       order.paymentStatus === "UNPAID"
   ).length;
 
+  const dashboardFilterLabel: Record<
+    DashboardOrderFilter,
+    string
+  > = {
+    ALL: "All Orders",
+    TODAY: "Orders Created Today",
+    ACTIVE: "Active Orders",
+    READY: "Ready / Delivery Orders",
+    UNPAID: "Unpaid Orders",
+  };
+
+  const dashboardFilterDescription: Record<
+    DashboardOrderFilter,
+    string
+  > = {
+    ALL: "All laundry orders are currently displayed.",
+    TODAY:
+      "Showing orders created today from the dashboard summary.",
+    ACTIVE:
+      "Showing orders that are currently in the laundry workflow.",
+    READY:
+      "Showing orders ready for pickup or currently out for delivery.",
+    UNPAID:
+      "Showing orders with an unpaid payment status.",
+  };
+
+  const dashboardEmptyMessage: Record<
+    DashboardOrderFilter,
+    string
+  > = {
+    ALL: "No orders match the current filters.",
+    TODAY: "There are no orders created today.",
+    ACTIVE: "There are no active orders right now.",
+    READY:
+      "There are no orders ready for pickup or delivery.",
+    UNPAID: "There are no unpaid orders.",
+  };
+
+  function clearAllFilters() {
+    setSearchTerm("");
+    setStatusFilter("ALL");
+    setPaymentFilter("ALL");
+    setSortOption("NEWEST");
+    setDashboardFilter("ALL");
+  }
+
   if (loading) {
     return <p>Loading orders...</p>;
   }
@@ -465,6 +658,49 @@ function OrdersPage() {
         </div>
       </div>
 
+      {dashboardFilter !== "ALL" && (
+        <div
+          className="dashboard-filter-banner"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="dashboard-filter-banner-content">
+            <div className="dashboard-filter-banner-icon">
+              <FaFilter />
+            </div>
+
+            <div>
+              <span>Dashboard filter applied</span>
+
+              <strong>
+                {
+                  dashboardFilterLabel[
+                    dashboardFilter
+                  ]
+                }
+              </strong>
+
+              <small>
+                {
+                  dashboardFilterDescription[
+                    dashboardFilter
+                  ]
+                }
+              </small>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="clear-filter-button"
+            onClick={clearAllFilters}
+          >
+            <FaTimes />
+            Show All Orders
+          </button>
+        </div>
+      )}
+
       <div className="orders-toolbar">
         <div className="orders-search">
           <label htmlFor="orderSearch">
@@ -475,11 +711,12 @@ function OrdersPage() {
             id="orderSearch"
             type="search"
             value={searchTerm}
-            onChange={(event) =>
+            onChange={(event) => {
               setSearchTerm(
                 event.target.value
-              )
-            }
+              );
+              setDashboardFilter("ALL");
+            }}
             placeholder="Order number or customer name"
           />
         </div>
@@ -492,11 +729,12 @@ function OrdersPage() {
           <select
             id="statusFilter"
             value={statusFilter}
-            onChange={(event) =>
+            onChange={(event) => {
               setStatusFilter(
                 event.target.value
-              )
-            }
+              );
+              setDashboardFilter("ALL");
+            }}
           >
             <option value="ALL">
               All Statuses
@@ -523,11 +761,12 @@ function OrdersPage() {
           <select
             id="paymentFilter"
             value={paymentFilter}
-            onChange={(event) =>
+            onChange={(event) => {
               setPaymentFilter(
                 event.target.value
-              )
-            }
+              );
+              setDashboardFilter("ALL");
+            }}
           >
             <option value="ALL">
               All Payments
@@ -587,12 +826,7 @@ function OrdersPage() {
               className="icon-button reset-filter-button"
               title="Clear Filters"
               aria-label="Clear Filters"
-              onClick={() => {
-                setSearchTerm("");
-                setStatusFilter("ALL");
-                setPaymentFilter("ALL");
-                setSortOption("NEWEST");
-              }}
+              onClick={clearAllFilters}
             >
               <FaUndoAlt />
             </button>
@@ -613,11 +847,46 @@ function OrdersPage() {
       </div>
 
       {displayedOrders.length === 0 ? (
-        <p>
-          {orders.length === 0
-            ? "No orders yet."
-            : "No orders match the current filters."}
-        </p>
+        <div className="dashboard-empty-state">
+          <div className="dashboard-empty-icon">
+            <FaClipboardList />
+          </div>
+
+          <strong>
+            {orders.length === 0
+              ? "No orders yet"
+              : dashboardFilter !== "ALL"
+                ? dashboardFilterLabel[
+                    dashboardFilter
+                  ]
+                : "No matching orders"}
+          </strong>
+
+          <p>
+            {orders.length === 0
+              ? "Create the first laundry order to begin managing transactions."
+              : dashboardFilter !== "ALL"
+                ? dashboardEmptyMessage[
+                    dashboardFilter
+                  ]
+                : "Try changing or clearing the current search and filters."}
+          </p>
+
+          {(dashboardFilter !== "ALL" ||
+            searchTerm.trim() !== "" ||
+            statusFilter !== "ALL" ||
+            paymentFilter !== "ALL" ||
+            sortOption !== "NEWEST") && (
+            <button
+              type="button"
+              className="clear-filter-button"
+              onClick={clearAllFilters}
+            >
+              <FaUndoAlt />
+              Clear Filters
+            </button>
+          )}
+        </div>
       ) : (
         <div className="table-wrapper">
           <table className="customer-table">

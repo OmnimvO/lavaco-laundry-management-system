@@ -3,7 +3,24 @@ import type {
   Response,
 } from "express";
 
-import { settingsService } from "../services/settings.service.js";
+import {
+  AuditAction,
+  AuditEntityType,
+  Prisma,
+} from "../generated/prisma/client.js";
+
+import {
+  settingsService,
+  type UpdateSettingsData,
+} from "../services/settings.service.js";
+
+import {
+  auditLogService,
+} from "../services/auditLog.service.js";
+
+import {
+  getAuthenticatedUserName,
+} from "../utils/authUser.js";
 
 const PRICE_FIELDS = [
   "completeServicePrice",
@@ -41,6 +58,98 @@ function getOptionalText(
   return value.trim() || null;
 }
 
+function parseBoolean(
+  value: unknown
+) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  return false;
+}
+
+function toPrismaJson(
+  value: unknown
+): Prisma.InputJsonValue {
+  return JSON.parse(
+    JSON.stringify(
+      value,
+      (_key, nestedValue) => {
+        if (
+          nestedValue instanceof Date
+        ) {
+          return nestedValue.toISOString();
+        }
+
+        if (
+          nestedValue === undefined
+        ) {
+          return null;
+        }
+
+        return nestedValue;
+      }
+    )
+  ) as Prisma.InputJsonValue;
+}
+
+function getChangedFields(
+  previousData:
+    Record<string, unknown>,
+
+  newData:
+    Record<string, unknown>,
+
+  fields:
+    string[]
+): Prisma.InputJsonValue {
+  const changedFields:
+    Record<
+      string,
+      {
+        previous:
+          unknown;
+        next:
+          unknown;
+      }
+    > = {};
+
+  for (const field of fields) {
+    const previousValue =
+      previousData[field];
+
+    const nextValue =
+      newData[field];
+
+    if (
+      JSON.stringify(previousValue) !==
+      JSON.stringify(nextValue)
+    ) {
+      changedFields[field] = {
+        previous:
+          previousValue ??
+          null,
+
+        next:
+          nextValue ??
+          null,
+      };
+    }
+  }
+
+  return toPrismaJson(
+    changedFields
+  );
+}
+
 export const settingsController = {
   getSettings: async (
     _req: Request,
@@ -69,10 +178,11 @@ export const settingsController = {
     res: Response
   ) => {
     try {
-      const updateData: Record<
-        string,
-        string | number | null
-      > = {};
+      const currentSettings =
+        await settingsService.getSettings();
+
+      const updateData:
+        UpdateSettingsData = {};
 
       if (
         req.body.shopName !== undefined
@@ -191,15 +301,188 @@ export const settingsController = {
           maximumWeightPerLoad;
       }
 
-      const settings =
-        await settingsService.updateSettings(
-          updateData
+      const nextMaximumLoads =
+        req.body.maximumLoadsPerTankCycle !==
+        undefined
+          ? Number(
+              req.body.maximumLoadsPerTankCycle
+            )
+          : currentSettings
+              .maximumLoadsPerTankCycle;
+
+      if (
+        !Number.isInteger(
+          nextMaximumLoads
+        ) ||
+        nextMaximumLoads <= 0
+      ) {
+        return res.status(400).json({
+          message:
+            "Maximum loads per tank cycle must be a positive whole number",
+        });
+      }
+
+      if (
+        req.body.maximumLoadsPerTankCycle !==
+        undefined
+      ) {
+        updateData.maximumLoadsPerTankCycle =
+          nextMaximumLoads;
+      }
+
+      const nextWarningThreshold =
+        req.body.tankWarningThreshold !==
+        undefined
+          ? Number(
+              req.body.tankWarningThreshold
+            )
+          : currentSettings
+              .tankWarningThreshold;
+
+      if (
+        !Number.isInteger(
+          nextWarningThreshold
+        ) ||
+        nextWarningThreshold <= 0
+      ) {
+        return res.status(400).json({
+          message:
+            "Tank warning threshold must be a positive whole number",
+        });
+      }
+
+      if (
+        nextWarningThreshold >=
+        nextMaximumLoads
+      ) {
+        return res.status(400).json({
+          message:
+            "Tank warning threshold must be lower than the maximum loads per tank cycle",
+        });
+      }
+
+      if (
+        req.body.tankWarningThreshold !==
+        undefined
+      ) {
+        updateData.tankWarningThreshold =
+          nextWarningThreshold;
+      }
+
+      if (
+        Object.keys(updateData).length ===
+        0
+      ) {
+        return res.status(400).json({
+          message:
+            "No valid settings were provided",
+        });
+      }
+
+      const applyTankLimitToCurrentCycle =
+        parseBoolean(
+          req.body
+            .applyTankLimitToCurrentCycle
         );
+
+      const result =
+        await settingsService.updateSettings(
+          updateData,
+          {
+            applyTankLimitToCurrentCycle,
+          }
+        );
+
+      const performedBy =
+        getAuthenticatedUserName(req);
+
+      const changedFields =
+        getChangedFields(
+          result.previousSettings as unknown as
+            Record<string, unknown>,
+
+          result.settings as unknown as
+            Record<string, unknown>,
+
+          Object.keys(
+            updateData
+          )
+        );
+
+      await auditLogService.recordAuditLogSafely({
+        action:
+          AuditAction.UPDATE,
+
+        entityType:
+          AuditEntityType.SETTINGS,
+
+        entityId:
+          result.settings.id,
+
+        entityName:
+          "Shop Settings",
+
+        description:
+          "Shop settings were updated.",
+
+        performedBy,
+
+        previousData: {
+          changedFields,
+
+          activeTankCycleId:
+            result.activeTankCycle.id,
+
+          previousTankMaximum:
+            result.previousSettings
+              .maximumLoadsPerTankCycle,
+        },
+
+        newData: {
+          changedFields,
+
+          activeTankCycleId:
+            result.activeTankCycle.id,
+
+          activeTankMaximum:
+            result.activeTankCycle
+              .maximumLoads,
+
+          appliedToCurrentTankCycle:
+            result
+              .appliedToCurrentTankCycle,
+        },
+      });
 
       return res.json({
         message:
           "Shop settings updated successfully",
-        settings,
+
+        settings:
+          result.settings,
+
+        tankCycle: {
+          id:
+            result.activeTankCycle.id,
+
+          currentLoads:
+            result.activeTankCycle
+              .currentLoads,
+
+          maximumLoads:
+            result.activeTankCycle
+              .maximumLoads,
+
+          appliedToCurrentCycle:
+            result
+              .appliedToCurrentTankCycle,
+
+          note:
+            result
+              .appliedToCurrentTankCycle
+              ? "The new maximum was applied to the current tank cycle."
+              : "The new maximum will apply automatically to the next tank cycle.",
+        },
       });
     } catch (error) {
       console.error(
@@ -207,10 +490,16 @@ export const settingsController = {
         error
       );
 
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to update shop settings";
+
       return res.status(500).json({
-        message:
-          "Failed to update shop settings",
+        message,
       });
     }
   },
 };
+
+export default settingsController;

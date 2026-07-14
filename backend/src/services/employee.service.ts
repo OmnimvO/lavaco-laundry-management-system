@@ -37,6 +37,9 @@ export const employeeService = {
 
   getAllEmployees: async () => {
     return prisma.employee.findMany({
+      where: {
+        isArchived: false,
+      },
       orderBy: [
         {
           status: "asc",
@@ -51,10 +54,18 @@ export const employeeService = {
     });
   },
 
-  getEmployeeById: async (id: number) => {
-    return prisma.employee.findUnique({
+  getEmployeeById: async (
+    id: number,
+    includeArchived = false
+  ) => {
+    return prisma.employee.findFirst({
       where: {
         id,
+        ...(includeArchived
+          ? {}
+          : {
+              isArchived: false,
+            }),
       },
     });
   },
@@ -71,10 +82,19 @@ export const employeeService = {
     });
   },
 
-  deleteEmployee: async (id: number) => {
-    return prisma.employee.delete({
+  archiveEmployee: async (
+    id: number,
+    archivedBy: string
+  ) => {
+    return prisma.employee.update({
       where: {
         id,
+      },
+      data: {
+        isArchived: true,
+        archivedAt: new Date(),
+        archivedBy,
+        status: EmployeeStatus.INACTIVE,
       },
     });
   },

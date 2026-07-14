@@ -23,8 +23,9 @@ type RegisterUserData = {
   employeeId?: number | null;
 };
 
-type TokenPayload = {
+export type TokenPayload = {
   userId: number;
+  name: string;
   email: string;
   role: UserRole;
 };
@@ -56,13 +57,20 @@ export const authService = {
   },
 
   findUserByEmail: async (
-    email: string
+    email: string,
+    includeArchived = false
   ) => {
-    return prisma.user.findUnique({
+    return prisma.user.findFirst({
       where: {
         email: email
           .trim()
           .toLowerCase(),
+
+        ...(includeArchived
+          ? {}
+          : {
+              isArchived: false,
+            }),
       },
 
       include: {
@@ -72,11 +80,18 @@ export const authService = {
   },
 
   getUserById: async (
-    id: number
+    id: number,
+    includeArchived = false
   ) => {
-    return prisma.user.findUnique({
+    return prisma.user.findFirst({
       where: {
         id,
+
+        ...(includeArchived
+          ? {}
+          : {
+              isArchived: false,
+            }),
       },
 
       include: {
@@ -159,6 +174,7 @@ export const authService = {
         role: true,
         status: true,
         employeeId: true,
+        isArchived: true,
         updatedAt: true,
       },
     });

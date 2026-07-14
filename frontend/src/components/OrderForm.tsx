@@ -17,6 +17,11 @@ import {
 } from "../constants/order";
 
 import { useSettings } from "../hooks/useSettings";
+import { useAuth } from "../hooks/useAuth";
+
+import {
+  lookupCustomerByPhone,
+} from "../api/customerApi";
 
 type OrderFormProps = {
   customers: Customer[];
@@ -134,12 +139,47 @@ function formatCurrency(
   ).toFixed(2)}`;
 }
 
+function normalizeLocalPhilippinePhone(
+  value: string
+) {
+  let digits =
+    value.replace(/\D/g, "");
+
+  if (
+    digits.startsWith("63") &&
+    digits.length >= 12
+  ) {
+    digits =
+      `0${digits.slice(2)}`;
+  } else if (
+    digits.startsWith("9") &&
+    digits.length >= 10
+  ) {
+    digits =
+      `0${digits}`;
+  }
+
+  return digits.slice(0, 11);
+}
+
+function isValidLocalPhilippinePhone(
+  value: string
+) {
+  return /^09\d{9}$/.test(
+    value
+  );
+}
+
 function OrderForm({
   customers,
   employees,
   selectedOrder,
   onSubmit,
 }: OrderFormProps) {
+  const {
+    token,
+  } = useAuth();
+
   const {
     settings,
     loading: settingsLoading,
@@ -159,7 +199,36 @@ function OrderForm({
     setIsSubmitting,
   ] = useState(false);
 
+  const [
+    customerLookupStatus,
+    setCustomerLookupStatus,
+  ] = useState<
+    | "IDLE"
+    | "CHECKING"
+    | "FOUND"
+    | "NOT_FOUND"
+    | "ERROR"
+  >("IDLE");
+
+  const [
+    matchedCustomer,
+    setMatchedCustomer,
+  ] = useState<
+    Customer | null
+  >(null);
+
+  const [
+    customerLookupMessage,
+    setCustomerLookupMessage,
+  ] = useState("");
+
   useEffect(() => {
+    setCustomerLookupStatus(
+      "IDLE"
+    );
+    setMatchedCustomer(null);
+    setCustomerLookupMessage("");
+
     if (!selectedOrder) {
       setFormData(
         initialFormData
@@ -185,8 +254,10 @@ function OrderForm({
           .walkInCustomerName ?? "",
 
       walkInCustomerPhone:
-        selectedOrder
-          .walkInCustomerPhone ?? "",
+        normalizeLocalPhilippinePhone(
+          selectedOrder
+            .walkInCustomerPhone ?? ""
+        ),
 
       walkInCustomerAddress:
         selectedOrder
@@ -244,6 +315,138 @@ function OrderForm({
         "RECEIVED",
     });
   }, [selectedOrder]);
+
+
+  useEffect(() => {
+    if (
+      formData.customerType !==
+      "WALK_IN"
+    ) {
+      setCustomerLookupStatus(
+        "IDLE"
+      );
+      setMatchedCustomer(null);
+      setCustomerLookupMessage("");
+      return;
+    }
+
+    const phone =
+      normalizeLocalPhilippinePhone(
+        formData.walkInCustomerPhone
+      );
+
+    if (!phone) {
+      setCustomerLookupStatus(
+        "IDLE"
+      );
+      setMatchedCustomer(null);
+      setCustomerLookupMessage("");
+      return;
+    }
+
+    if (
+      !isValidLocalPhilippinePhone(
+        phone
+      )
+    ) {
+      setCustomerLookupStatus(
+        "IDLE"
+      );
+      setMatchedCustomer(null);
+      setCustomerLookupMessage("");
+      return;
+    }
+
+    if (
+      typeof token !== "string" ||
+      !token.trim()
+    ) {
+      setCustomerLookupStatus(
+        "ERROR"
+      );
+      setMatchedCustomer(null);
+      setCustomerLookupMessage(
+        "Your session is unavailable. Please log in again."
+      );
+      return;
+    }
+
+    setCustomerLookupStatus(
+      "CHECKING"
+    );
+    setMatchedCustomer(null);
+    setCustomerLookupMessage(
+      "Checking for an existing customer..."
+    );
+
+    let cancelled = false;
+
+    const timer =
+      window.setTimeout(
+        async () => {
+          try {
+            const response =
+              await lookupCustomerByPhone(
+                phone,
+                token
+              );
+
+            if (cancelled) {
+              return;
+            }
+
+            if (
+              response.found &&
+              response.customer
+            ) {
+              setCustomerLookupStatus(
+                "FOUND"
+              );
+              setMatchedCustomer(
+                response.customer
+              );
+              setCustomerLookupMessage(
+                `Existing customer found: ${response.customer.name}. This order will be linked automatically.`
+              );
+            } else {
+              setCustomerLookupStatus(
+                "NOT_FOUND"
+              );
+              setMatchedCustomer(null);
+              setCustomerLookupMessage(
+                "No existing customer found. A new customer will be saved when the order is created."
+              );
+            }
+          } catch (error) {
+            if (cancelled) {
+              return;
+            }
+
+            setCustomerLookupStatus(
+              "ERROR"
+            );
+            setMatchedCustomer(null);
+            setCustomerLookupMessage(
+              error instanceof Error
+                ? error.message
+                : "Unable to check the customer right now."
+            );
+          }
+        },
+        500
+      );
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(
+        timer
+      );
+    };
+  }, [
+    formData.customerType,
+    formData.walkInCustomerPhone,
+    token,
+  ]);
 
   const activeEmployees =
     useMemo(
@@ -488,9 +691,29 @@ function OrderForm({
 
         if (
           name ===
+          "walkInCustomerPhone"
+        ) {
+          return {
+            ...updatedData,
+
+            walkInCustomerPhone:
+              normalizeLocalPhilippinePhone(
+                value
+              ),
+          };
+        }
+
+        if (
+          name ===
             "customerType" &&
           value === "EXISTING"
         ) {
+          setCustomerLookupStatus(
+            "IDLE"
+          );
+          setMatchedCustomer(null);
+          setCustomerLookupMessage("");
+
           return {
             ...updatedData,
 
@@ -576,6 +799,25 @@ function OrderForm({
       return;
     }
 
+    const normalizedWalkInPhone =
+      normalizeLocalPhilippinePhone(
+        formData.walkInCustomerPhone
+      );
+
+    if (
+      formData.customerType ===
+        "WALK_IN" &&
+      normalizedWalkInPhone &&
+      !isValidLocalPhilippinePhone(
+        normalizedWalkInPhone
+      )
+    ) {
+      alert(
+        "Please enter a valid Philippine mobile number using 09XXXXXXXXX."
+      );
+      return;
+    }
+
     if (
       !Number.isFinite(
         formData.laundryWeight
@@ -633,9 +875,8 @@ function OrderForm({
       walkInCustomerPhone:
         formData.customerType ===
         "WALK_IN"
-          ? formData
-              .walkInCustomerPhone
-              .trim()
+          ? normalizedWalkInPhone ||
+            undefined
           : undefined,
 
       walkInCustomerAddress:
@@ -829,18 +1070,69 @@ function OrderForm({
 
                   <div className="form-group medium-field">
                     <label htmlFor="walkInCustomerPhone">
-                      Walk-in Phone
+                      Philippine Mobile Number
                     </label>
 
                     <input
                       id="walkInCustomerPhone"
                       name="walkInCustomerPhone"
+                      type="tel"
+                      inputMode="numeric"
+                      autoComplete="tel"
+                      maxLength={11}
+                      pattern="09[0-9]{9}"
                       value={
                         formData.walkInCustomerPhone
                       }
                       onChange={handleChange}
-                      placeholder="09XXXXXXXXX"
+                      placeholder="09171234567"
+                      title="Enter an 11-digit Philippine mobile number beginning with 09."
                     />
+
+                    <small className="field-helper-text">
+                      Optional. Use the format
+                      09XXXXXXXXX.
+                    </small>
+                  </div>
+
+                  <div
+                    className={`walkin-customer-info full-width lookup-${customerLookupStatus.toLowerCase()}`}
+                    aria-live="polite"
+                  >
+                    <strong>
+                      {customerLookupStatus ===
+                      "FOUND"
+                        ? "Existing customer detected"
+                        : customerLookupStatus ===
+                          "NOT_FOUND"
+                        ? "New customer"
+                        : customerLookupStatus ===
+                          "CHECKING"
+                        ? "Checking customer"
+                        : customerLookupStatus ===
+                          "ERROR"
+                        ? "Customer lookup unavailable"
+                        : "Automatic customer matching"}
+                    </strong>
+
+                    <p>
+                      {customerLookupMessage ||
+                        "Enter a Philippine mobile number to check for an existing customer. New walk-in customers are saved automatically."}
+                    </p>
+
+                    {matchedCustomer && (
+                      <div className="walkin-match-details">
+                        <span>
+                          {matchedCustomer.phone ||
+                            "No phone"}
+                        </span>
+
+                        <span>
+                          {matchedCustomer.address ||
+                            "No address"}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="form-group full-width">
@@ -900,13 +1192,6 @@ function OrderForm({
                   readOnly
                 />
 
-                <small className="addon-price">
-                  Maximum{" "}
-                  {settings.maximumWeightPerLoad.toFixed(
-                    1
-                  )}{" "}
-                  kg per load
-                </small>
               </div>
 
               <div className="checkbox-group mixed-color-field">
@@ -1151,14 +1436,6 @@ function OrderForm({
                   readOnly
                 />
 
-                <small className="addon-price">
-                  Extra rinse fee:{" "}
-                  <strong>
-                    {formatCurrency(
-                      settings.extraRinseFee
-                    )}
-                  </strong>
-                </small>
               </div>
 
               <div className="form-group addon-quantity-field">

@@ -4,16 +4,33 @@ import type {
 } from "express";
 
 import {
+  AuditAction,
+  AuditEntityType,
   UserRole,
   UserStatus,
 } from "../generated/prisma/client.js";
 
-import { employeeService } from "../services/employee.service.js";
-import { userService } from "../services/user.service.js";
+import {
+  employeeService,
+} from "../services/employee.service.js";
 
-const VALID_ROLES = new Set<UserRole>(
-  Object.values(UserRole)
-);
+import {
+  userService,
+} from "../services/user.service.js";
+
+import {
+  auditLogService,
+} from "../services/auditLog.service.js";
+
+import {
+  getAuthenticatedUserId,
+  getAuthenticatedUserName,
+} from "../utils/authUser.js";
+
+const VALID_ROLES =
+  new Set<UserRole>(
+    Object.values(UserRole)
+  );
 
 const VALID_STATUSES =
   new Set<UserStatus>(
@@ -28,9 +45,10 @@ function parsePositiveInteger(
     | undefined
     | null
 ) {
-  const rawValue = Array.isArray(value)
-    ? value[0]
-    : value;
+  const rawValue =
+    Array.isArray(value)
+      ? value[0]
+      : value;
 
   if (
     rawValue === undefined ||
@@ -40,22 +58,25 @@ function parsePositiveInteger(
     return null;
   }
 
-  const numberValue = Number(rawValue);
+  const numberValue =
+    Number(rawValue);
 
-  if (
-    !Number.isInteger(numberValue) ||
-    numberValue <= 0
-  ) {
-    return null;
-  }
-
-  return numberValue;
+  return (
+    Number.isInteger(
+      numberValue
+    ) &&
+    numberValue > 0
+      ? numberValue
+      : null
+  );
 }
 
 function normalizeEmail(
   value: unknown
 ) {
-  if (typeof value !== "string") {
+  if (
+    typeof value !== "string"
+  ) {
     return "";
   }
 
@@ -98,7 +119,9 @@ async function validateEmployeeLink(
   employeeId: number | null,
   currentUserId?: number
 ) {
-  if (employeeId === null) {
+  if (
+    employeeId === null
+  ) {
     return null;
   }
 
@@ -111,17 +134,18 @@ async function validateEmployeeLink(
     return {
       status: 404,
       message:
-        "Linked employee was not found",
+        "Linked employee was not found or is archived.",
     };
   }
 
   if (
-    employee.status !== "ACTIVE"
+    employee.status !==
+    "ACTIVE"
   ) {
     return {
       status: 400,
       message:
-        "Only an active employee can be linked to a user account",
+        "Only an active employee can be linked to a user account.",
     };
   }
 
@@ -132,12 +156,13 @@ async function validateEmployeeLink(
 
   if (
     linkedUser &&
-    linkedUser.id !== currentUserId
+    linkedUser.id !==
+      currentUserId
   ) {
     return {
       status: 409,
       message:
-        "This employee is already linked to another user account",
+        "This employee is already linked to another user account.",
     };
   }
 
@@ -146,40 +171,43 @@ async function validateEmployeeLink(
 
 export const userController = {
   getAllUsers: async (
-    _req: Request,
-    res: Response
+    _request: Request,
+    response: Response
   ) => {
     try {
       const users =
         await userService.getAllUsers();
 
-      return res.json(users);
+      return response.json(
+        users
+      );
     } catch (error) {
       console.error(
         "Get users error:",
         error
       );
 
-      return res.status(500).json({
+      return response.status(500).json({
         message:
-          "Failed to get user accounts",
+          "Failed to get user accounts.",
       });
     }
   },
 
   getUserById: async (
-    req: Request,
-    res: Response
+    request: Request,
+    response: Response
   ) => {
     try {
       const id =
         parsePositiveInteger(
-          req.params.id
+          request.params.id
         );
 
       if (!id) {
-        return res.status(400).json({
-          message: "Invalid user ID",
+        return response.status(400).json({
+          message:
+            "Invalid user ID.",
         });
       }
 
@@ -189,46 +217,50 @@ export const userController = {
         );
 
       if (!user) {
-        return res.status(404).json({
+        return response.status(404).json({
           message:
-            "User account not found",
+            "User account was not found.",
         });
       }
 
-      return res.json(user);
+      return response.json(user);
     } catch (error) {
       console.error(
         "Get user error:",
         error
       );
 
-      return res.status(500).json({
+      return response.status(500).json({
         message:
-          "Failed to get user account",
+          "Failed to get user account.",
       });
     }
   },
 
   createUser: async (
-    req: Request,
-    res: Response
+    request: Request,
+    response: Response
   ) => {
     try {
       const {
         name,
         email,
         password,
-        role = UserRole.STAFF,
-        status = UserStatus.ACTIVE,
+        role =
+          UserRole.STAFF,
+        status =
+          UserStatus.ACTIVE,
         employeeId,
-      } = req.body;
+      } = request.body;
 
       if (
-        typeof name !== "string" ||
+        typeof name !==
+          "string" ||
         !name.trim()
       ) {
-        return res.status(400).json({
-          message: "Name is required",
+        return response.status(400).json({
+          message:
+            "Name is required.",
         });
       }
 
@@ -241,45 +273,51 @@ export const userController = {
           normalizedEmail
         )
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
-            "Enter a valid email address",
+            "Enter a valid email address.",
         });
       }
 
       if (
-        typeof password !== "string" ||
+        typeof password !==
+          "string" ||
         password.length < 8
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
-            "Password must contain at least 8 characters",
+            "Password must contain at least 8 characters.",
         });
       }
 
       if (!isUserRole(role)) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
-            "Invalid account role",
+            "Invalid account role.",
         });
       }
 
-      if (!isUserStatus(status)) {
-        return res.status(400).json({
+      if (
+        !isUserStatus(status)
+      ) {
+        return response.status(400).json({
           message:
-            "Invalid account status",
+            "Invalid account status.",
         });
       }
 
       const existingUser =
         await userService.findUserByEmail(
-          normalizedEmail
+          normalizedEmail,
+          true
         );
 
       if (existingUser) {
-        return res.status(409).json({
+        return response.status(409).json({
           message:
-            "An account with this email already exists",
+            existingUser.isArchived
+              ? "An archived account already uses this email. Restore that account instead."
+              : "An account with this email already exists.",
         });
       }
 
@@ -288,7 +326,8 @@ export const userController = {
         | null = null;
 
       if (
-        employeeId !== undefined &&
+        employeeId !==
+          undefined &&
         employeeId !== null &&
         employeeId !== ""
       ) {
@@ -298,9 +337,9 @@ export const userController = {
           );
 
         if (!numericEmployeeId) {
-          return res.status(400).json({
+          return response.status(400).json({
             message:
-              "Invalid employee ID",
+              "Invalid employee ID.",
           });
         }
       }
@@ -311,8 +350,10 @@ export const userController = {
         );
 
       if (employeeError) {
-        return res
-          .status(employeeError.status)
+        return response
+          .status(
+            employeeError.status
+          )
           .json({
             message:
               employeeError.message,
@@ -321,20 +362,67 @@ export const userController = {
 
       const user =
         await userService.createUser({
-          name: name.trim(),
-          email: normalizedEmail,
+          name:
+            name.trim(),
+
+          email:
+            normalizedEmail,
+
           password,
           role,
           status,
+
           employeeId:
             numericEmployeeId,
         });
 
-      return res
+      const performedBy =
+        getAuthenticatedUserName(
+          request
+        );
+
+      await auditLogService.recordAuditLogSafely({
+        action:
+          AuditAction.CREATE,
+
+        entityType:
+          AuditEntityType.USER,
+
+        entityId:
+          user.id,
+
+        entityName:
+          user.name,
+
+        description:
+          `User account ${user.email} was created.`,
+
+        performedBy,
+
+        newData: {
+          name:
+            user.name,
+
+          email:
+            user.email,
+
+          role:
+            user.role,
+
+          status:
+            user.status,
+
+          employeeId:
+            user.employeeId,
+        },
+      });
+
+      return response
         .status(201)
         .json({
           message:
-            "User account created successfully",
+            "User account created successfully.",
+
           user,
         });
     } catch (error) {
@@ -343,35 +431,39 @@ export const userController = {
         error
       );
 
-      return res.status(500).json({
+      return response.status(500).json({
         message:
-          "Failed to create user account",
+          "Failed to create user account.",
       });
     }
   },
 
   updateUser: async (
-    req: Request,
-    res: Response
+    request: Request,
+    response: Response
   ) => {
     try {
       const id =
         parsePositiveInteger(
-          req.params.id
+          request.params.id
         );
 
       if (!id) {
-        return res.status(400).json({
-          message: "Invalid user ID",
+        return response.status(400).json({
+          message:
+            "Invalid user ID.",
         });
       }
 
-      const authenticatedUser =
-        req.user;
+      const authenticatedUserId =
+        getAuthenticatedUserId(
+          request
+        );
 
-      if (!authenticatedUser) {
-        return res.status(401).json({
-          message: "Not authenticated",
+      if (!authenticatedUserId) {
+        return response.status(401).json({
+          message:
+            "Not authenticated.",
         });
       }
 
@@ -381,9 +473,9 @@ export const userController = {
         );
 
       if (!existingUser) {
-        return res.status(404).json({
+        return response.status(404).json({
           message:
-            "User account not found",
+            "User account was not found.",
         });
       }
 
@@ -393,18 +485,19 @@ export const userController = {
         role,
         status,
         employeeId,
-      } = req.body;
+      } = request.body;
 
       if (
         name !== undefined &&
         (
-          typeof name !== "string" ||
+          typeof name !==
+            "string" ||
           !name.trim()
         )
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
-            "Name cannot be empty",
+            "Name cannot be empty.",
         });
       }
 
@@ -412,7 +505,9 @@ export const userController = {
         | string
         | undefined;
 
-      if (email !== undefined) {
+      if (
+        email !== undefined
+      ) {
         normalizedEmail =
           normalizeEmail(email);
 
@@ -422,24 +517,25 @@ export const userController = {
             normalizedEmail
           )
         ) {
-          return res.status(400).json({
+          return response.status(400).json({
             message:
-              "Enter a valid email address",
+              "Enter a valid email address.",
           });
         }
 
         const userWithEmail =
           await userService.findUserByEmail(
-            normalizedEmail
+            normalizedEmail,
+            true
           );
 
         if (
           userWithEmail &&
           userWithEmail.id !== id
         ) {
-          return res.status(409).json({
+          return response.status(409).json({
             message:
-              "An account with this email already exists",
+              "Another account already uses this email.",
           });
         }
       }
@@ -448,9 +544,9 @@ export const userController = {
         role !== undefined &&
         !isUserRole(role)
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
-            "Invalid account role",
+            "Invalid account role.",
         });
       }
 
@@ -458,30 +554,32 @@ export const userController = {
         status !== undefined &&
         !isUserStatus(status)
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
-            "Invalid account status",
+            "Invalid account status.",
         });
       }
 
       if (
-        authenticatedUser.userId === id &&
+        authenticatedUserId === id &&
         role !== undefined &&
-        role !== existingUser.role
+        role !==
+          existingUser.role
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
-            "You cannot change your own account role",
+            "You cannot change your own account role.",
         });
       }
 
       if (
-        authenticatedUser.userId === id &&
-        status === UserStatus.INACTIVE
+        authenticatedUserId === id &&
+        status ===
+          UserStatus.INACTIVE
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
-            "You cannot deactivate your own account",
+            "You cannot deactivate your own account.",
         });
       }
 
@@ -493,20 +591,25 @@ export const userController = {
         (
           (
             role !== undefined &&
-            role !== UserRole.ADMIN
+            role !==
+              UserRole.ADMIN
           ) ||
           status ===
             UserStatus.INACTIVE
         );
 
       if (removesActiveAdmin) {
-        const activeAdminCount =
-          await userService.countActiveAdmins();
+        const remainingAdmins =
+          await userService.countActiveAdmins(
+            id
+          );
 
-        if (activeAdminCount <= 1) {
-          return res.status(400).json({
+        if (
+          remainingAdmins < 1
+        ) {
+          return response.status(400).json({
             message:
-              "The last active administrator cannot be demoted or deactivated",
+              "The last active administrator cannot be demoted or deactivated.",
           });
         }
       }
@@ -516,22 +619,28 @@ export const userController = {
         | null
         | undefined;
 
-      if (employeeId !== undefined) {
+      if (
+        employeeId !==
+        undefined
+      ) {
         if (
           employeeId === null ||
           employeeId === ""
         ) {
-          normalizedEmployeeId = null;
+          normalizedEmployeeId =
+            null;
         } else {
           normalizedEmployeeId =
             parsePositiveInteger(
               employeeId
             );
 
-          if (!normalizedEmployeeId) {
-            return res.status(400).json({
+          if (
+            !normalizedEmployeeId
+          ) {
+            return response.status(400).json({
               message:
-                "Invalid employee ID",
+                "Invalid employee ID.",
             });
           }
         }
@@ -543,8 +652,10 @@ export const userController = {
           );
 
         if (employeeError) {
-          return res
-            .status(employeeError.status)
+          return response
+            .status(
+              employeeError.status
+            )
             .json({
               message:
                 employeeError.message,
@@ -572,9 +683,68 @@ export const userController = {
           }
         );
 
-      return res.json({
+      const performedBy =
+        getAuthenticatedUserName(
+          request
+        );
+
+      await auditLogService.recordAuditLogSafely({
+        action:
+          AuditAction.UPDATE,
+
+        entityType:
+          AuditEntityType.USER,
+
+        entityId:
+          user.id,
+
+        entityName:
+          user.name,
+
+        description:
+          `User account ${user.email} was updated.`,
+
+        performedBy,
+
+        previousData: {
+          name:
+            existingUser.name,
+
+          email:
+            existingUser.email,
+
+          role:
+            existingUser.role,
+
+          status:
+            existingUser.status,
+
+          employeeId:
+            existingUser.employeeId,
+        },
+
+        newData: {
+          name:
+            user.name,
+
+          email:
+            user.email,
+
+          role:
+            user.role,
+
+          status:
+            user.status,
+
+          employeeId:
+            user.employeeId,
+        },
+      });
+
+      return response.json({
         message:
-          "User account updated successfully",
+          "User account updated successfully.",
+
         user,
       });
     } catch (error) {
@@ -583,41 +753,42 @@ export const userController = {
         error
       );
 
-      return res.status(500).json({
+      return response.status(500).json({
         message:
-          "Failed to update user account",
+          "Failed to update user account.",
       });
     }
   },
 
   resetPassword: async (
-    req: Request,
-    res: Response
+    request: Request,
+    response: Response
   ) => {
     try {
       const id =
         parsePositiveInteger(
-          req.params.id
+          request.params.id
         );
 
       if (!id) {
-        return res.status(400).json({
-          message: "Invalid user ID",
+        return response.status(400).json({
+          message:
+            "Invalid user ID.",
         });
       }
 
       const {
         newPassword,
-      } = req.body;
+      } = request.body;
 
       if (
         typeof newPassword !==
           "string" ||
         newPassword.length < 8
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
-            "New password must contain at least 8 characters",
+            "New password must contain at least 8 characters.",
         });
       }
 
@@ -627,20 +798,49 @@ export const userController = {
         );
 
       if (!existingUser) {
-        return res.status(404).json({
+        return response.status(404).json({
           message:
-            "User account not found",
+            "User account was not found.",
         });
       }
 
-      await userService.resetPassword(
-        id,
-        newPassword
-      );
+      const user =
+        await userService.resetPassword(
+          id,
+          newPassword
+        );
 
-      return res.json({
+      const performedBy =
+        getAuthenticatedUserName(
+          request
+        );
+
+      await auditLogService.recordAuditLogSafely({
+        action:
+          AuditAction.UPDATE,
+
+        entityType:
+          AuditEntityType.USER,
+
+        entityId:
+          user.id,
+
+        entityName:
+          user.name,
+
+        description:
+          `Password for ${user.email} was reset.`,
+
+        performedBy,
+
+        newData: {
+          passwordReset: true,
+        },
+      });
+
+      return response.json({
         message:
-          `Password for ${existingUser.name} was reset successfully`,
+          `Password for ${existingUser.name} was reset successfully.`,
       });
     } catch (error) {
       console.error(
@@ -648,44 +848,48 @@ export const userController = {
         error
       );
 
-      return res.status(500).json({
+      return response.status(500).json({
         message:
-          "Failed to reset user password",
+          "Failed to reset user password.",
       });
     }
   },
 
   deleteUser: async (
-    req: Request,
-    res: Response
+    request: Request,
+    response: Response
   ) => {
     try {
       const id =
         parsePositiveInteger(
-          req.params.id
+          request.params.id
         );
 
       if (!id) {
-        return res.status(400).json({
-          message: "Invalid user ID",
+        return response.status(400).json({
+          message:
+            "Invalid user ID.",
         });
       }
 
-      const authenticatedUser =
-        req.user;
+      const authenticatedUserId =
+        getAuthenticatedUserId(
+          request
+        );
 
-      if (!authenticatedUser) {
-        return res.status(401).json({
-          message: "Not authenticated",
+      if (!authenticatedUserId) {
+        return response.status(401).json({
+          message:
+            "Not authenticated.",
         });
       }
 
       if (
-        authenticatedUser.userId === id
+        authenticatedUserId === id
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
-            "You cannot delete your own account",
+            "You cannot archive your own account.",
         });
       }
 
@@ -695,9 +899,9 @@ export const userController = {
         );
 
       if (!existingUser) {
-        return res.status(404).json({
+        return response.status(404).json({
           message:
-            "User account not found",
+            "User account was not found.",
         });
       }
 
@@ -707,33 +911,92 @@ export const userController = {
         existingUser.status ===
           UserStatus.ACTIVE
       ) {
-        const activeAdminCount =
-          await userService.countActiveAdmins();
+        const remainingAdmins =
+          await userService.countActiveAdmins(
+            id
+          );
 
-        if (activeAdminCount <= 1) {
-          return res.status(400).json({
+        if (
+          remainingAdmins < 1
+        ) {
+          return response.status(400).json({
             message:
-              "The last active administrator cannot be deleted",
+              "The last active administrator cannot be archived.",
           });
         }
       }
 
-      await userService.deleteUser(id);
+      const performedBy =
+        getAuthenticatedUserName(
+          request
+        );
 
-      return res.json({
+      const user =
+        await userService.archiveUser(
+          id,
+          performedBy
+        );
+
+      await auditLogService.recordAuditLogSafely({
+        action:
+          AuditAction.ARCHIVE,
+
+        entityType:
+          AuditEntityType.USER,
+
+        entityId:
+          user.id,
+
+        entityName:
+          user.name,
+
+        description:
+          `User account ${user.email} was archived.`,
+
+        performedBy,
+
+        previousData: {
+          status:
+            existingUser.status,
+
+          isArchived:
+            existingUser.isArchived,
+        },
+
+        newData: {
+          status:
+            user.status,
+
+          isArchived:
+            user.isArchived,
+
+          archivedAt:
+            user.archivedAt
+              ?.toISOString(),
+
+          archivedBy:
+            user.archivedBy,
+        },
+      });
+
+      return response.json({
         message:
-          "User account deleted successfully",
+          "User account archived successfully.",
+
+        user,
       });
     } catch (error) {
       console.error(
-        "Delete user error:",
+        "Archive user error:",
         error
       );
 
-      return res.status(500).json({
+      return response.status(500).json({
         message:
-          "Failed to delete user account",
+          "Failed to archive user account.",
       });
     }
   },
 };
+
+export default userController;

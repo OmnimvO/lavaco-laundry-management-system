@@ -1,12 +1,23 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
 import {
+  FaCalendarAlt,
+  FaChartBar,
+  FaClipboardList,
+  FaCoins,
   FaDownload,
+  FaExclamationCircle,
+  FaFilter,
+  FaMoneyBillWave,
   FaPrint,
+  FaSyncAlt,
+  FaTshirt,
   FaUndoAlt,
+  FaWallet,
 } from "react-icons/fa";
 
 import { getOrders } from "../api/orderApi";
@@ -18,9 +29,15 @@ import {
   SERVICE_TYPES,
 } from "../constants/order";
 
+import {
+  useAuth,
+} from "../hooks/useAuth";
+
 type ReportType =
   | "DAILY_SALES"
   | "MONTHLY_SALES"
+  | "YEARLY_SALES"
+  | "ALL_TIME"
   | "CUSTOM_RANGE"
   | "PAID_ORDERS"
   | "UNPAID_ORDERS"
@@ -38,6 +55,14 @@ const REPORT_TYPES: {
   {
     value: "MONTHLY_SALES",
     label: "Monthly Sales",
+  },
+  {
+    value: "YEARLY_SALES",
+    label: "Yearly Sales",
+  },
+  {
+    value: "ALL_TIME",
+    label: "Overall Report",
   },
   {
     value: "CUSTOM_RANGE",
@@ -209,12 +234,127 @@ function escapeCsvValue(value: unknown) {
   )}"`;
 }
 
+function getReportDescription(
+  reportType: ReportType
+) {
+  const descriptions: Record<
+    ReportType,
+    string
+  > = {
+    DAILY_SALES:
+      "Orders and revenue recorded on the selected day.",
+    MONTHLY_SALES:
+      "Monthly sales, payments, and laundry activity.",
+    YEARLY_SALES:
+      "Complete monthly business performance for the selected year.",
+    ALL_TIME:
+      "Overall active business history across all available years.",
+    CUSTOM_RANGE:
+      "Business activity within a custom date range.",
+    PAID_ORDERS:
+      "All successfully paid, non-cancelled orders.",
+    UNPAID_ORDERS:
+      "Outstanding orders that still require payment.",
+    REVENUE_BY_SERVICE:
+      "Paid revenue grouped by laundry service.",
+    LAUNDRY_VOLUME:
+      "Laundry weight and load volume by service.",
+  };
+
+  return descriptions[reportType];
+}
+
+function getReportIcon(
+  reportType: ReportType
+) {
+  switch (reportType) {
+    case "DAILY_SALES":
+      return <FaCalendarAlt />;
+
+    case "MONTHLY_SALES":
+      return <FaChartBar />;
+
+    case "YEARLY_SALES":
+      return <FaChartBar />;
+
+    case "ALL_TIME":
+      return <FaCoins />;
+
+    case "CUSTOM_RANGE":
+      return <FaFilter />;
+
+    case "PAID_ORDERS":
+      return <FaWallet />;
+
+    case "UNPAID_ORDERS":
+      return <FaExclamationCircle />;
+
+    case "REVENUE_BY_SERVICE":
+      return <FaMoneyBillWave />;
+
+    case "LAUNDRY_VOLUME":
+      return <FaTshirt />;
+
+    default:
+      return <FaClipboardList />;
+  }
+}
+
+function getDateRangeLabel(
+  reportType: ReportType,
+  startDate: Date,
+  endDate: Date
+) {
+  if (
+    reportType === "ALL_TIME" ||
+    reportType === "PAID_ORDERS" ||
+    reportType === "UNPAID_ORDERS" ||
+    reportType === "REVENUE_BY_SERVICE" ||
+    reportType === "LAUNDRY_VOLUME"
+  ) {
+    return "All available records";
+  }
+
+  const startLabel =
+    startDate.toLocaleDateString(
+      "en-PH",
+      {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }
+    );
+
+  const endLabel =
+    endDate.toLocaleDateString(
+      "en-PH",
+      {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }
+    );
+
+  return startLabel === endLabel
+    ? startLabel
+    : `${startLabel} – ${endLabel}`;
+}
+
 function ReportsPage() {
+  const {
+    token,
+  } = useAuth();
   const [orders, setOrders] =
     useState<Order[]>([]);
 
   const [loading, setLoading] =
     useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const [lastUpdated, setLastUpdated] =
+    useState<Date | null>(null);
 
   const [errorMessage, setErrorMessage] =
     useState<string | null>(null);
@@ -230,11 +370,17 @@ function ReportsPage() {
     .toISOString()
     .slice(0, 7);
 
+  const currentYearString =
+    String(new Date().getFullYear());
+
   const [selectedDate, setSelectedDate] =
     useState(todayString);
 
   const [selectedMonth, setSelectedMonth] =
     useState(currentMonthString);
+
+  const [selectedYear, setSelectedYear] =
+    useState(currentYearString);
 
   const [
     customStartDate,
@@ -265,20 +411,38 @@ function ReportsPage() {
   const [searchTerm, setSearchTerm] =
     useState("");
 
-  useEffect(() => {
-    async function loadReportsData() {
+  const loadReportsData = useCallback(
+    async (manualRefresh = false) => {
       try {
-        setLoading(true);
+        if (manualRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
         setErrorMessage(null);
 
+        if (
+          typeof token !== "string" ||
+          !token.trim()
+        ) {
+          throw new Error(
+            "Your session is unavailable. Please log in again."
+          );
+        }
+
         const ordersData =
-          await getOrders();
+          await getOrders(
+            token
+          );
 
         setOrders(
           Array.isArray(ordersData)
             ? ordersData
             : []
         );
+
+        setLastUpdated(new Date());
       } catch (error) {
         console.error(
           "Failed to load reports:",
@@ -292,11 +456,24 @@ function ReportsPage() {
         );
       } finally {
         setLoading(false);
+        setRefreshing(false);
       }
-    }
+    },
+    [token]
+  );
 
-    loadReportsData();
-  }, []);
+  useEffect(() => {
+    void loadReportsData(false);
+  }, [loadReportsData]);
+
+  const hasInvalidCustomRange =
+    reportType === "CUSTOM_RANGE" &&
+    Boolean(
+      customStartDate &&
+        customEndDate &&
+        customStartDate >
+          customEndDate
+    );
 
   const reportData = useMemo(() => {
     const today = new Date();
@@ -338,6 +515,73 @@ function ReportsPage() {
     }
 
     if (
+      reportType === "YEARLY_SALES"
+    ) {
+      const year =
+        Number(selectedYear);
+
+      startDate = new Date(
+        year,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      );
+
+      endDate = new Date(
+        year,
+        11,
+        31,
+        23,
+        59,
+        59,
+        999
+      );
+    }
+
+    if (
+      reportType === "ALL_TIME"
+    ) {
+      const activeOrderDates =
+        orders
+          .filter(
+            (order) =>
+              !order.isArchived
+          )
+          .map(
+            (order) =>
+              new Date(
+                order.createdAt
+              )
+          )
+          .filter(
+            (date) =>
+              !Number.isNaN(
+                date.getTime()
+              )
+          );
+
+      startDate =
+        activeOrderDates.length > 0
+          ? getStartOfDay(
+              new Date(
+                Math.min(
+                  ...activeOrderDates.map(
+                    (date) =>
+                      date.getTime()
+                  )
+                )
+              )
+            )
+          : getStartOfDay(today);
+
+      endDate =
+        getEndOfDay(today);
+    }
+
+    if (
       reportType === "CUSTOM_RANGE"
     ) {
       startDate = getStartOfDay(
@@ -351,13 +595,37 @@ function ReportsPage() {
           `${customEndDate}T00:00:00`
         )
       );
+
+      if (startDate > endDate) {
+        return {
+          orders: [],
+          paidOrders: [],
+          unpaidOrders: [],
+          cancelledOrders: [],
+          totalRevenue: 0,
+          unpaidAmount: 0,
+          totalWeight: 0,
+          totalLoads: 0,
+          averageOrderValue: 0,
+          largestOrder: null,
+          oldestUnpaidOrder: null,
+          serviceBreakdown: [],
+          startDate,
+          endDate,
+        };
+      }
     }
 
-    let reportOrders = [...orders];
+    let reportOrders =
+      orders.filter(
+        (order) =>
+          !order.isArchived
+      );
 
     if (
       reportType === "DAILY_SALES" ||
       reportType === "MONTHLY_SALES" ||
+      reportType === "YEARLY_SALES" ||
       reportType === "CUSTOM_RANGE"
     ) {
       reportOrders =
@@ -554,8 +822,15 @@ function ReportsPage() {
         0
       );
 
+    const operationalOrders =
+      sortedOrders.filter(
+        (order) =>
+          order.status !==
+          "CANCELLED"
+      );
+
     const totalWeight =
-      sortedOrders.reduce(
+      operationalOrders.reduce(
         (total, order) =>
           total +
           Number(
@@ -565,7 +840,7 @@ function ReportsPage() {
       );
 
     const totalLoads =
-      sortedOrders.reduce(
+      operationalOrders.reduce(
         (total, order) =>
           total +
           Number(order.loadCount || 0),
@@ -611,7 +886,9 @@ function ReportsPage() {
             sortedOrders.filter(
               (order) =>
                 order.serviceType ===
-                service.value
+                  service.value &&
+                order.status !==
+                  "CANCELLED"
             );
 
           const paidServiceOrders =
@@ -687,6 +964,7 @@ function ReportsPage() {
     reportType,
     selectedDate,
     selectedMonth,
+    selectedYear,
     customStartDate,
     customEndDate,
     serviceFilter,
@@ -695,6 +973,14 @@ function ReportsPage() {
     fulfillmentFilter,
     searchTerm,
   ]);
+
+  const activeFilterCount = [
+    serviceFilter !== "ALL",
+    statusFilter !== "ALL",
+    paymentFilter !== "ALL",
+    fulfillmentFilter !== "ALL",
+    searchTerm.trim() !== "",
+  ].filter(Boolean).length;
 
   function resetFilters() {
     setServiceFilter("ALL");
@@ -801,7 +1087,14 @@ function ReportsPage() {
   }
 
   if (loading) {
-    return <p>Loading reports...</p>;
+    return (
+      <section className="reports-page">
+        <div className="dashboard-loading">
+          <FaSyncAlt className="dashboard-spin" />
+          <span>Loading reports...</span>
+        </div>
+      </section>
+    );
   }
 
   if (errorMessage) {
@@ -810,6 +1103,17 @@ function ReportsPage() {
         <div className="dashboard-error">
           <h2>Reports unavailable</h2>
           <p>{errorMessage}</p>
+
+          <button
+            type="button"
+            className="dashboard-retry-button"
+            onClick={() =>
+              void loadReportsData(true)
+            }
+          >
+            <FaSyncAlt />
+            Try Again
+          </button>
         </div>
       </section>
     );
@@ -820,6 +1124,16 @@ function ReportsPage() {
       (report) =>
         report.value === reportType
     )?.label ?? "Report";
+
+  const reportDescription =
+    getReportDescription(reportType);
+
+  const reportRangeLabel =
+    getDateRangeLabel(
+      reportType,
+      reportData.startDate,
+      reportData.endDate
+    );
 
   return (
     <section className="reports-page">
@@ -838,6 +1152,27 @@ function ReportsPage() {
             type="button"
             className="btn-secondary"
             onClick={() =>
+              void loadReportsData(true)
+            }
+            disabled={refreshing}
+          >
+            <FaSyncAlt
+              className={
+                refreshing
+                  ? "dashboard-spin"
+                  : ""
+              }
+            />
+
+            {refreshing
+              ? "Refreshing..."
+              : "Refresh"}
+          </button>
+
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() =>
               window.print()
             }
           >
@@ -851,7 +1186,8 @@ function ReportsPage() {
             onClick={exportCsv}
             disabled={
               reportData.orders.length ===
-              0
+                0 ||
+              hasInvalidCustomRange
             }
           >
             <FaDownload />
@@ -874,7 +1210,13 @@ function ReportsPage() {
               setReportType(report.value)
             }
           >
-            {report.label}
+            {getReportIcon(
+              report.value
+            )}
+
+            <span>
+              {report.label}
+            </span>
           </button>
         ))}
       </div>
@@ -916,6 +1258,43 @@ function ReportsPage() {
                   event.target.value
                 )
               }
+            />
+          </div>
+        )}
+
+        {reportType ===
+          "YEARLY_SALES" && (
+          <div className="reports-filter-group">
+            <label htmlFor="reportYear">
+              Report Year
+            </label>
+
+            <input
+              id="reportYear"
+              type="number"
+              min="2000"
+              max="9999"
+              value={selectedYear}
+              onChange={(event) =>
+                setSelectedYear(
+                  event.target.value
+                )
+              }
+            />
+          </div>
+        )}
+
+        {reportType ===
+          "ALL_TIME" && (
+          <div className="reports-filter-group">
+            <label>
+              Report Coverage
+            </label>
+
+            <input
+              value="All active records"
+              readOnly
+              aria-label="All active records"
             />
           </div>
         )}
@@ -1110,10 +1489,35 @@ function ReportsPage() {
           title="Reset Filters"
           aria-label="Reset Filters"
           onClick={resetFilters}
+          disabled={
+            activeFilterCount === 0
+          }
         >
           <FaUndoAlt />
         </button>
       </div>
+
+      {activeFilterCount > 0 && (
+        <div className="orders-result-summary">
+          <span>
+            <strong>
+              {activeFilterCount}
+            </strong>{" "}
+            additional filter
+            {activeFilterCount === 1
+              ? ""
+              : "s"}{" "}
+            applied
+          </span>
+        </div>
+      )}
+
+      {hasInvalidCustomRange && (
+        <div className="dashboard-inline-warning">
+          The custom start date cannot be
+          later than the end date.
+        </div>
+      )}
 
       <div
         className="reports-print-area"
@@ -1126,22 +1530,34 @@ function ReportsPage() {
             </h3>
 
             <p>{reportTitle}</p>
+
+            <small>
+              {reportDescription}
+            </small>
           </div>
 
           <div>
-            <span>Generated</span>
+            <span>Report Period</span>
 
             <strong>
-              {formatDateTime(
-                new Date().toISOString()
-              )}
+              {reportRangeLabel}
+            </strong>
+
+            <span>Last Updated</span>
+
+            <strong>
+              {lastUpdated
+                ? formatDateTime(
+                    lastUpdated.toISOString()
+                  )
+                : "Not updated yet"}
             </strong>
           </div>
         </div>
 
         <div className="reports-summary-grid">
           <article className="reports-summary-card reports-primary-card">
-            <span>Paid Revenue</span>
+            <span><FaCoins /> Paid Revenue</span>
 
             <strong>
               {formatCurrency(
@@ -1151,7 +1567,7 @@ function ReportsPage() {
           </article>
 
           <article className="reports-summary-card">
-            <span>Total Orders</span>
+            <span><FaClipboardList /> Total Orders</span>
 
             <strong>
               {reportData.orders.length}
@@ -1159,7 +1575,7 @@ function ReportsPage() {
           </article>
 
           <article className="reports-summary-card">
-            <span>Paid Orders</span>
+            <span><FaWallet /> Paid Orders</span>
 
             <strong>
               {reportData.paidOrders.length}
@@ -1167,7 +1583,7 @@ function ReportsPage() {
           </article>
 
           <article className="reports-summary-card">
-            <span>Unpaid Orders</span>
+            <span><FaExclamationCircle /> Unpaid Orders</span>
 
             <strong>
               {
@@ -1178,7 +1594,7 @@ function ReportsPage() {
           </article>
 
           <article className="reports-summary-card">
-            <span>Unpaid Amount</span>
+            <span><FaMoneyBillWave /> Unpaid Amount</span>
 
             <strong>
               {formatCurrency(
@@ -1188,7 +1604,7 @@ function ReportsPage() {
           </article>
 
           <article className="reports-summary-card">
-            <span>Total Weight</span>
+            <span><FaTshirt /> Total Weight</span>
 
             <strong>
               {reportData.totalWeight.toFixed(
@@ -1199,7 +1615,7 @@ function ReportsPage() {
           </article>
 
           <article className="reports-summary-card">
-            <span>Total Loads</span>
+            <span><FaChartBar /> Total Loads</span>
 
             <strong>
               {reportData.totalLoads}
@@ -1207,7 +1623,7 @@ function ReportsPage() {
           </article>
 
           <article className="reports-summary-card">
-            <span>Average Sale</span>
+            <span><FaCoins /> Average Sale</span>
 
             <strong>
               {formatCurrency(
@@ -1216,6 +1632,150 @@ function ReportsPage() {
             </strong>
           </article>
         </div>
+
+        {reportType ===
+          "YEARLY_SALES" && (
+          <section className="reports-panel">
+            <div className="reports-panel-header">
+              <div>
+                <h3>
+                  Monthly Year Overview
+                </h3>
+
+                <p>
+                  Paid revenue, active orders,
+                  weight, and loads for each month.
+                </p>
+              </div>
+            </div>
+
+            <div className="table-wrapper">
+              <table className="customer-table">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Active Orders</th>
+                    <th>Paid Orders</th>
+                    <th>Revenue</th>
+                    <th>Weight</th>
+                    <th>Loads</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {Array.from(
+                    { length: 12 },
+                    (_, monthIndex) => {
+                      const monthOrders =
+                        reportData.orders.filter(
+                          (order) => {
+                            const date =
+                              new Date(
+                                order.createdAt
+                              );
+
+                            return (
+                              !Number.isNaN(
+                                date.getTime()
+                              ) &&
+                              date.getMonth() ===
+                                monthIndex &&
+                              order.status !==
+                                "CANCELLED"
+                            );
+                          }
+                        );
+
+                      const paidMonthOrders =
+                        monthOrders.filter(
+                          (order) =>
+                            order.paymentStatus ===
+                            "PAID"
+                        );
+
+                      return (
+                        <tr key={monthIndex}>
+                          <td>
+                            {new Date(
+                              Number(selectedYear),
+                              monthIndex,
+                              1
+                            ).toLocaleDateString(
+                              "en-PH",
+                              {
+                                month: "long",
+                              }
+                            )}
+                          </td>
+
+                          <td>
+                            {monthOrders.length}
+                          </td>
+
+                          <td>
+                            {
+                              paidMonthOrders.length
+                            }
+                          </td>
+
+                          <td className="table-total">
+                            {formatCurrency(
+                              paidMonthOrders.reduce(
+                                (
+                                  total,
+                                  order
+                                ) =>
+                                  total +
+                                  Number(
+                                    order.totalPrice ||
+                                      0
+                                  ),
+                                0
+                              )
+                            )}
+                          </td>
+
+                          <td>
+                            {monthOrders
+                              .reduce(
+                                (
+                                  total,
+                                  order
+                                ) =>
+                                  total +
+                                  Number(
+                                    order.laundryWeight ||
+                                      0
+                                  ),
+                                0
+                              )
+                              .toFixed(1)}{" "}
+                            kg
+                          </td>
+
+                          <td>
+                            {monthOrders.reduce(
+                              (
+                                total,
+                                order
+                              ) =>
+                                total +
+                                Number(
+                                  order.loadCount ||
+                                    0
+                                ),
+                              0
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    }
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {reportType ===
           "REVENUE_BY_SERVICE" && (
@@ -1235,9 +1795,16 @@ function ReportsPage() {
 
             {reportData.serviceBreakdown
               .length === 0 ? (
-              <p>
-                No service data available.
-              </p>
+              <div className="dashboard-empty-state">
+                <strong>
+                  No service revenue data
+                </strong>
+
+                <p>
+                  Adjust the report filters or
+                  record paid orders first.
+                </p>
+              </div>
             ) : (
               <div className="table-wrapper">
                 <table className="customer-table">
@@ -1311,10 +1878,16 @@ function ReportsPage() {
 
             {reportData.serviceBreakdown
               .length === 0 ? (
-              <p>
-                No laundry volume data
-                available.
-              </p>
+              <div className="dashboard-empty-state">
+                <strong>
+                  No laundry volume data
+                </strong>
+
+                <p>
+                  Laundry weight and load
+                  totals will appear here.
+                </p>
+              </div>
             ) : (
               <div className="table-wrapper">
                 <table className="customer-table">
@@ -1396,10 +1969,21 @@ function ReportsPage() {
 
           {reportData.orders.length ===
           0 ? (
-            <p>
-              No orders found for the
-              selected report and filters.
-            </p>
+            <div className="dashboard-empty-state">
+              <div className="dashboard-empty-icon">
+                <FaClipboardList />
+              </div>
+
+              <strong>
+                No matching report records
+              </strong>
+
+              <p>
+                Change the report type, date,
+                search, or filters and try
+                again.
+              </p>
+            </div>
           ) : (
             <div className="table-wrapper">
               <table className="customer-table reports-table">
@@ -1484,17 +2068,25 @@ function ReportsPage() {
                         </td>
 
                         <td>
-                          {getLabel(
-                            ORDER_STATUSES,
-                            order.status
-                          )}
+                          <span
+                            className={`status-badge status-${order.status.toLowerCase()}`}
+                          >
+                            {getLabel(
+                              ORDER_STATUSES,
+                              order.status
+                            )}
+                          </span>
                         </td>
 
                         <td>
-                          {getLabel(
-                            PAYMENT_STATUSES,
-                            order.paymentStatus
-                          )}
+                          <span
+                            className={`payment-badge payment-${order.paymentStatus.toLowerCase()}`}
+                          >
+                            {getLabel(
+                              PAYMENT_STATUSES,
+                              order.paymentStatus
+                            )}
+                          </span>
                         </td>
 
                         {reportType ===

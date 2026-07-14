@@ -1,4 +1,6 @@
-import type { Employee } from "../types/employee";
+import type {
+  Employee,
+} from "../types/employee";
 
 const API_URL =
   "http://localhost:3000/api/employees";
@@ -17,118 +19,155 @@ export type EmployeePayload = {
   notes?: string;
 };
 
-async function parseErrorMessage(
+async function parseResponse<T>(
   response: Response
-) {
+): Promise<T> {
+  let data: unknown;
+
   try {
-    const errorData =
+    data =
       await response.json();
-
-    return (
-      errorData.message ||
-      "Something went wrong while processing the employee."
-    );
   } catch {
-    return (
-      "Something went wrong while processing the employee."
-    );
+    data = null;
   }
-}
-
-export async function getEmployees(): Promise<
-  Employee[]
-> {
-  const response = await fetch(API_URL);
 
   if (!response.ok) {
     const message =
-      await parseErrorMessage(response);
+      typeof data === "object" &&
+      data !== null &&
+      "message" in data &&
+      typeof data.message ===
+        "string"
+        ? data.message
+        : "Something went wrong while processing the employee.";
 
     throw new Error(message);
   }
 
-  return response.json();
+  return data as T;
+}
+
+function getHeaders(
+  token: string,
+  includeJson = false
+): HeadersInit {
+  if (!token.trim()) {
+    throw new Error(
+      "Your session is unavailable. Please log in again."
+    );
+  }
+
+  return {
+    ...(includeJson
+      ? {
+          "Content-Type":
+            "application/json",
+        }
+      : {}),
+
+    Authorization:
+      `Bearer ${token}`,
+  };
+}
+
+export async function getEmployees(
+  token: string
+): Promise<Employee[]> {
+  const response =
+    await fetch(API_URL, {
+      headers:
+        getHeaders(token),
+    });
+
+  return parseResponse<
+    Employee[]
+  >(response);
 }
 
 export async function getEmployeeById(
-  id: number
+  id: number,
+  token: string
 ): Promise<Employee> {
-  const response = await fetch(
-    `${API_URL}/${id}`
-  );
+  const response =
+    await fetch(
+      `${API_URL}/${id}`,
+      {
+        headers:
+          getHeaders(token),
+      }
+    );
 
-  if (!response.ok) {
-    const message =
-      await parseErrorMessage(response);
-
-    throw new Error(message);
-  }
-
-  return response.json();
+  return parseResponse<
+    Employee
+  >(response);
 }
 
 export async function createEmployee(
-  data: EmployeePayload
+  data: EmployeePayload,
+  token: string
 ): Promise<Employee> {
-  const response = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
+  const response =
+    await fetch(API_URL, {
+      method: "POST",
 
-  if (!response.ok) {
-    const message =
-      await parseErrorMessage(response);
+      headers:
+        getHeaders(
+          token,
+          true
+        ),
 
-    throw new Error(message);
-  }
+      body:
+        JSON.stringify(data),
+    });
 
-  return response.json();
+  return parseResponse<
+    Employee
+  >(response);
 }
 
 export async function updateEmployee(
   id: number,
-  data: EmployeePayload
+  data: EmployeePayload,
+  token: string
 ): Promise<Employee> {
-  const response = await fetch(
-    `${API_URL}/${id}`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    }
-  );
+  const response =
+    await fetch(
+      `${API_URL}/${id}`,
+      {
+        method: "PUT",
 
-  if (!response.ok) {
-    const message =
-      await parseErrorMessage(response);
+        headers:
+          getHeaders(
+            token,
+            true
+          ),
 
-    throw new Error(message);
-  }
+        body:
+          JSON.stringify(data),
+      }
+    );
 
-  return response.json();
+  return parseResponse<
+    Employee
+  >(response);
 }
 
 export async function deleteEmployee(
-  id: number
-) {
-  const response = await fetch(
-    `${API_URL}/${id}`,
-    {
-      method: "DELETE",
-    }
-  );
+  id: number,
+  token: string
+): Promise<{
+  message?: string;
+}> {
+  const response =
+    await fetch(
+      `${API_URL}/${id}`,
+      {
+        method: "DELETE",
 
-  if (!response.ok) {
-    const message =
-      await parseErrorMessage(response);
+        headers:
+          getHeaders(token),
+      }
+    );
 
-    throw new Error(message);
-  }
-
-  return response.json();
+  return parseResponse(response);
 }

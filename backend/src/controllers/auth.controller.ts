@@ -4,16 +4,30 @@ import type {
 } from "express";
 
 import {
+  AuditAction,
+  AuditEntityType,
   UserRole,
   UserStatus,
 } from "../generated/prisma/client.js";
 
-import { authService } from "../services/auth.service.js";
+import {
+  authService,
+} from "../services/auth.service.js";
+
+import {
+  auditLogService,
+} from "../services/auditLog.service.js";
+
+import {
+  getAuthenticatedUserName,
+} from "../utils/authUser.js";
 
 function normalizeEmail(
   value: unknown
 ) {
-  if (typeof value !== "string") {
+  if (
+    typeof value !== "string"
+  ) {
     return "";
   }
 
@@ -33,7 +47,9 @@ function isValidEmail(
 function validatePassword(
   password: unknown
 ) {
-  if (typeof password !== "string") {
+  if (
+    typeof password !== "string"
+  ) {
     return "Password is required";
   }
 
@@ -53,6 +69,9 @@ function getSafeUser(user: {
   role: UserRole;
   status: UserStatus;
   employeeId: number | null;
+  isArchived: boolean;
+  archivedAt: Date | null;
+  archivedBy: string | null;
   employee?: unknown;
   createdAt: Date;
   updatedAt: Date;
@@ -63,25 +82,142 @@ function getSafeUser(user: {
     email: user.email,
     role: user.role,
     status: user.status,
-    employeeId: user.employeeId,
+    employeeId:
+      user.employeeId,
+    isArchived:
+      user.isArchived,
+    archivedAt:
+      user.archivedAt,
+    archivedBy:
+      user.archivedBy,
     employee:
       user.employee ?? null,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
+    createdAt:
+      user.createdAt,
+    updatedAt:
+      user.updatedAt,
   };
+}
+
+async function recordLoginAudit(
+  data: {
+    email: string;
+    success: boolean;
+    userId?: number | null;
+    userName?: string | null;
+    reason?: string;
+  }
+) {
+  await auditLogService.recordAuditLogSafely({
+    action:
+      AuditAction.UPDATE,
+
+    entityType:
+      AuditEntityType.USER,
+
+    entityId:
+      data.userId ?? null,
+
+    entityName:
+      data.userName ??
+      data.email,
+
+    description:
+      data.success
+        ? `Successful login for ${data.email}.`
+        : `Rejected login attempt for ${data.email}. ${data.reason ?? ""}`.trim(),
+
+    performedBy:
+      data.success
+        ? data.userName ??
+          data.email
+        : "System",
+
+    newData: {
+      event:
+        data.success
+          ? "LOGIN_SUCCESS"
+          : "LOGIN_FAILED",
+
+      email:
+        data.email,
+
+      reason:
+        data.reason ?? null,
+
+      occurredAt:
+        new Date().toISOString(),
+    },
+  });
+}
+
+function getAccountAccessError(
+  user: {
+    status: UserStatus;
+    isArchived: boolean;
+    employee:
+      | {
+          status: string;
+          isArchived: boolean;
+        }
+      | null;
+  }
+) {
+  if (user.isArchived) {
+    return {
+      status: 403,
+      message:
+        "This account has been archived. Ask an administrator to restore it.",
+    };
+  }
+
+  if (
+    user.status !==
+    UserStatus.ACTIVE
+  ) {
+    return {
+      status: 403,
+      message:
+        "This account is inactive.",
+    };
+  }
+
+  if (
+    user.employee?.isArchived
+  ) {
+    return {
+      status: 403,
+      message:
+        "The linked employee record has been archived.",
+    };
+  }
+
+  if (
+    user.employee &&
+    user.employee.status !==
+      "ACTIVE"
+  ) {
+    return {
+      status: 403,
+      message:
+        "The linked employee record is inactive.",
+    };
+  }
+
+  return null;
 }
 
 export const authController = {
   register: async (
-    req: Request,
-    res: Response
+    request: Request,
+    response: Response
   ) => {
     try {
       const userCount =
         await authService.countUsers();
 
       if (userCount > 0) {
-        return res.status(403).json({
+        return response.status(403).json({
           message:
             "Public registration is disabled. Ask an administrator to create your account.",
         });
@@ -92,14 +228,16 @@ export const authController = {
         email,
         password,
         employeeId,
-      } = req.body;
+      } = request.body;
 
       if (
-        typeof name !== "string" ||
+        typeof name !==
+          "string" ||
         !name.trim()
       ) {
-        return res.status(400).json({
-          message: "Name is required",
+        return response.status(400).json({
+          message:
+            "Name is required",
         });
       }
 
@@ -112,7 +250,7 @@ export const authController = {
           normalizedEmail
         )
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
             "Enter a valid email address",
         });
@@ -122,20 +260,24 @@ export const authController = {
         validatePassword(password);
 
       if (passwordError) {
-        return res.status(400).json({
-          message: passwordError,
+        return response.status(400).json({
+          message:
+            passwordError,
         });
       }
 
       const existingUser =
         await authService.findUserByEmail(
-          normalizedEmail
+          normalizedEmail,
+          true
         );
 
       if (existingUser) {
-        return res.status(409).json({
+        return response.status(409).json({
           message:
-            "An account with this email already exists",
+            existingUser.isArchived
+              ? "An archived account already uses this email."
+              : "An account with this email already exists",
         });
       }
 
@@ -144,7 +286,8 @@ export const authController = {
         | null = null;
 
       if (
-        employeeId !== undefined &&
+        employeeId !==
+          undefined &&
         employeeId !== null &&
         employeeId !== ""
       ) {
@@ -157,7 +300,7 @@ export const authController = {
           ) ||
           numericEmployeeId <= 0
         ) {
-          return res.status(400).json({
+          return response.status(400).json({
             message:
               "Invalid employee ID",
           });
@@ -166,36 +309,88 @@ export const authController = {
 
       const user =
         await authService.registerUser({
-          name: name.trim(),
-          email: normalizedEmail,
+          name:
+            name.trim(),
+
+          email:
+            normalizedEmail,
+
           password,
-          role: UserRole.ADMIN,
-          status: UserStatus.ACTIVE,
+
+          role:
+            UserRole.ADMIN,
+
+          status:
+            UserStatus.ACTIVE,
+
           employeeId:
             numericEmployeeId,
         });
 
       const token =
         authService.generateToken({
-          userId: user.id,
-          email: user.email,
-          role: user.role,
+          userId:
+            user.id,
+
+          name:
+            user.name,
+
+          email:
+            user.email,
+
+          role:
+            user.role,
         });
 
-      return res.status(201).json({
-        message:
-          "Administrator account created successfully",
+      await auditLogService.recordAuditLogSafely({
+        action:
+          AuditAction.CREATE,
 
-        token,
-        user: getSafeUser(user),
+        entityType:
+          AuditEntityType.USER,
+
+        entityId:
+          user.id,
+
+        entityName:
+          user.name,
+
+        description:
+          "Initial administrator account was created.",
+
+        performedBy:
+          user.name,
+
+        newData: {
+          email:
+            user.email,
+
+          role:
+            user.role,
+
+          status:
+            user.status,
+        },
       });
+
+      return response
+        .status(201)
+        .json({
+          message:
+            "Administrator account created successfully",
+
+          token,
+
+          user:
+            getSafeUser(user),
+        });
     } catch (error) {
       console.error(
         "Register error:",
         error
       );
 
-      return res.status(500).json({
+      return response.status(500).json({
         message:
           "Failed to register account",
       });
@@ -203,14 +398,14 @@ export const authController = {
   },
 
   login: async (
-    req: Request,
-    res: Response
+    request: Request,
+    response: Response
   ) => {
     try {
       const {
         email,
         password,
-      } = req.body;
+      } = request.body;
 
       const normalizedEmail =
         normalizeEmail(email);
@@ -221,17 +416,18 @@ export const authController = {
           normalizedEmail
         )
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
             "Enter a valid email address",
         });
       }
 
       if (
-        typeof password !== "string" ||
+        typeof password !==
+          "string" ||
         !password
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
             "Password is required",
         });
@@ -239,35 +435,57 @@ export const authController = {
 
       const user =
         await authService.findUserByEmail(
-          normalizedEmail
+          normalizedEmail,
+          true
         );
 
       if (!user) {
-        return res.status(401).json({
+        await recordLoginAudit({
+          email:
+            normalizedEmail,
+
+          success: false,
+
+          reason:
+            "Account was not found.",
+        });
+
+        return response.status(401).json({
           message:
             "Invalid email or password",
         });
       }
 
-      if (
-        user.status !==
-        UserStatus.ACTIVE
-      ) {
-        return res.status(403).json({
-          message:
-            "This account is inactive",
-        });
-      }
+      const accessError =
+        getAccountAccessError(
+          user
+        );
 
-      if (
-        user.employee &&
-        user.employee.status !==
-          "ACTIVE"
-      ) {
-        return res.status(403).json({
-          message:
-            "The linked employee record is inactive",
+      if (accessError) {
+        await recordLoginAudit({
+          email:
+            normalizedEmail,
+
+          success: false,
+
+          userId:
+            user.id,
+
+          userName:
+            user.name,
+
+          reason:
+            accessError.message,
         });
+
+        return response
+          .status(
+            accessError.status
+          )
+          .json({
+            message:
+              accessError.message,
+          });
       }
 
       const passwordMatches =
@@ -277,7 +495,23 @@ export const authController = {
         );
 
       if (!passwordMatches) {
-        return res.status(401).json({
+        await recordLoginAudit({
+          email:
+            normalizedEmail,
+
+          success: false,
+
+          userId:
+            user.id,
+
+          userName:
+            user.name,
+
+          reason:
+            "Incorrect password.",
+        });
+
+        return response.status(401).json({
           message:
             "Invalid email or password",
         });
@@ -285,16 +519,40 @@ export const authController = {
 
       const token =
         authService.generateToken({
-          userId: user.id,
-          email: user.email,
-          role: user.role,
+          userId:
+            user.id,
+
+          name:
+            user.name,
+
+          email:
+            user.email,
+
+          role:
+            user.role,
         });
 
-      return res.json({
+      await recordLoginAudit({
+        email:
+          user.email,
+
+        success: true,
+
+        userId:
+          user.id,
+
+        userName:
+          user.name,
+      });
+
+      return response.json({
         message:
           "Login successful",
+
         token,
-        user: getSafeUser(user),
+
+        user:
+          getSafeUser(user),
       });
     } catch (error) {
       console.error(
@@ -302,7 +560,7 @@ export const authController = {
         error
       );
 
-      return res.status(500).json({
+      return response.status(500).json({
         message:
           "Failed to log in",
       });
@@ -310,15 +568,15 @@ export const authController = {
   },
 
   getCurrentUser: async (
-    req: Request,
-    res: Response
+    request: Request,
+    response: Response
   ) => {
     try {
       const authenticatedUser =
-        req.user;
+        request.user;
 
       if (!authenticatedUser) {
-        return res.status(401).json({
+        return response.status(401).json({
           message:
             "Not authenticated",
         });
@@ -326,39 +584,36 @@ export const authController = {
 
       const user =
         await authService.getUserById(
-          authenticatedUser.userId
+          authenticatedUser.userId,
+          true
         );
 
       if (!user) {
-        return res.status(404).json({
+        return response.status(404).json({
           message:
             "User not found",
         });
       }
 
-      if (
-        user.status !==
-        UserStatus.ACTIVE
-      ) {
-        return res.status(403).json({
-          message:
-            "This account is inactive",
-        });
+      const accessError =
+        getAccountAccessError(
+          user
+        );
+
+      if (accessError) {
+        return response
+          .status(
+            accessError.status
+          )
+          .json({
+            message:
+              accessError.message,
+          });
       }
 
-      if (
-        user.employee &&
-        user.employee.status !==
-          "ACTIVE"
-      ) {
-        return res.status(403).json({
-          message:
-            "The linked employee record is inactive",
-        });
-      }
-
-      return res.json({
-        user: getSafeUser(user),
+      return response.json({
+        user:
+          getSafeUser(user),
       });
     } catch (error) {
       console.error(
@@ -366,7 +621,7 @@ export const authController = {
         error
       );
 
-      return res.status(500).json({
+      return response.status(500).json({
         message:
           "Failed to get current user",
       });
@@ -374,15 +629,15 @@ export const authController = {
   },
 
   changePassword: async (
-    req: Request,
-    res: Response
+    request: Request,
+    response: Response
   ) => {
     try {
       const authenticatedUser =
-        req.user;
+        request.user;
 
       if (!authenticatedUser) {
-        return res.status(401).json({
+        return response.status(401).json({
           message:
             "Not authenticated",
         });
@@ -391,24 +646,26 @@ export const authController = {
       const {
         currentPassword,
         newPassword,
-      } = req.body;
+      } = request.body;
 
       if (
         typeof currentPassword !==
           "string" ||
         !currentPassword
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
             "Current password is required",
         });
       }
 
       const passwordError =
-        validatePassword(newPassword);
+        validatePassword(
+          newPassword
+        );
 
       if (passwordError) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
             passwordError.replace(
               "Password",
@@ -421,7 +678,7 @@ export const authController = {
         currentPassword ===
         newPassword
       ) {
-        return res.status(400).json({
+        return response.status(400).json({
           message:
             "New password must be different from your current password",
         });
@@ -429,24 +686,31 @@ export const authController = {
 
       const user =
         await authService.getUserById(
-          authenticatedUser.userId
+          authenticatedUser.userId,
+          true
         );
 
       if (!user) {
-        return res.status(404).json({
+        return response.status(404).json({
           message:
             "User not found",
         });
       }
 
-      if (
-        user.status !==
-        UserStatus.ACTIVE
-      ) {
-        return res.status(403).json({
-          message:
-            "This account is inactive",
-        });
+      const accessError =
+        getAccountAccessError(
+          user
+        );
+
+      if (accessError) {
+        return response
+          .status(
+            accessError.status
+          )
+          .json({
+            message:
+              accessError.message,
+          });
       }
 
       const passwordMatches =
@@ -456,7 +720,7 @@ export const authController = {
         );
 
       if (!passwordMatches) {
-        return res.status(401).json({
+        return response.status(401).json({
           message:
             "Current password is incorrect",
         });
@@ -467,7 +731,37 @@ export const authController = {
         newPassword
       );
 
-      return res.json({
+      await auditLogService.recordAuditLogSafely({
+        action:
+          AuditAction.UPDATE,
+
+        entityType:
+          AuditEntityType.USER,
+
+        entityId:
+          user.id,
+
+        entityName:
+          user.name,
+
+        description:
+          `Password for ${user.email} was changed.`,
+
+        performedBy:
+          getAuthenticatedUserName(
+            request
+          ),
+
+        newData: {
+          passwordChanged:
+            true,
+
+          changedAt:
+            new Date().toISOString(),
+        },
+      });
+
+      return response.json({
         message:
           "Password changed successfully",
       });
@@ -477,10 +771,12 @@ export const authController = {
         error
       );
 
-      return res.status(500).json({
+      return response.status(500).json({
         message:
           "Failed to change password",
       });
     }
   },
 };
+
+export default authController;

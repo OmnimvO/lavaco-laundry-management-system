@@ -9,11 +9,21 @@ const API_URL =
   "http://localhost:3000/api/users";
 
 function getAuthHeaders(
-  token: string,
+  token: string | undefined,
   includeJson = false
-) {
+): HeadersInit {
+  if (
+    typeof token !== "string" ||
+    !token.trim()
+  ) {
+    throw new Error(
+      "Your session is unavailable. Please log in again."
+    );
+  }
+
   return {
-    Authorization: `Bearer ${token}`,
+    Authorization:
+      `Bearer ${token}`,
 
     ...(includeJson
       ? {
@@ -24,13 +34,14 @@ function getAuthHeaders(
   };
 }
 
-async function parseResponse(
+async function parseResponse<T>(
   response: Response
-) {
+): Promise<T> {
   let data: unknown;
 
   try {
-    data = await response.json();
+    data =
+      await response.json();
   } catch {
     data = null;
   }
@@ -40,47 +51,47 @@ async function parseResponse(
       typeof data === "object" &&
       data !== null &&
       "message" in data &&
-      typeof data.message === "string"
+      typeof data.message ===
+        "string"
         ? data.message
         : "User account request failed.";
 
     throw new Error(message);
   }
 
-  return data;
+  return data as T;
 }
 
 export async function getUsers(
   token: string
 ): Promise<UserAccount[]> {
-  const response = await fetch(
-    API_URL,
-    {
+  const response =
+    await fetch(API_URL, {
       headers:
         getAuthHeaders(token),
-    }
-  );
+    });
 
-  return parseResponse(
-    response
-  ) as Promise<UserAccount[]>;
+  return parseResponse<
+    UserAccount[]
+  >(response);
 }
 
 export async function getUserById(
   id: number,
   token: string
 ): Promise<UserAccount> {
-  const response = await fetch(
-    `${API_URL}/${id}`,
-    {
-      headers:
-        getAuthHeaders(token),
-    }
-  );
+  const response =
+    await fetch(
+      `${API_URL}/${id}`,
+      {
+        headers:
+          getAuthHeaders(token),
+      }
+    );
 
-  return parseResponse(
-    response
-  ) as Promise<UserAccount>;
+  return parseResponse<
+    UserAccount
+  >(response);
 }
 
 export async function createUser(
@@ -90,9 +101,8 @@ export async function createUser(
   message: string;
   user: UserAccount;
 }> {
-  const response = await fetch(
-    API_URL,
-    {
+  const response =
+    await fetch(API_URL, {
       method: "POST",
 
       headers:
@@ -103,15 +113,9 @@ export async function createUser(
 
       body:
         JSON.stringify(data),
-    }
-  );
+    });
 
-  return parseResponse(
-    response
-  ) as Promise<{
-    message: string;
-    user: UserAccount;
-  }>;
+  return parseResponse(response);
 }
 
 export async function updateUser(
@@ -122,28 +126,24 @@ export async function updateUser(
   message: string;
   user: UserAccount;
 }> {
-  const response = await fetch(
-    `${API_URL}/${id}`,
-    {
-      method: "PUT",
+  const response =
+    await fetch(
+      `${API_URL}/${id}`,
+      {
+        method: "PUT",
 
-      headers:
-        getAuthHeaders(
-          token,
-          true
-        ),
+        headers:
+          getAuthHeaders(
+            token,
+            true
+          ),
 
-      body:
-        JSON.stringify(data),
-    }
-  );
+        body:
+          JSON.stringify(data),
+      }
+    );
 
-  return parseResponse(
-    response
-  ) as Promise<{
-    message: string;
-    user: UserAccount;
-  }>;
+  return parseResponse(response);
 }
 
 export async function resetUserPassword(
@@ -153,27 +153,24 @@ export async function resetUserPassword(
 ): Promise<{
   message: string;
 }> {
-  const response = await fetch(
-    `${API_URL}/${id}/reset-password`,
-    {
-      method: "PATCH",
+  const response =
+    await fetch(
+      `${API_URL}/${id}/reset-password`,
+      {
+        method: "PATCH",
 
-      headers:
-        getAuthHeaders(
-          token,
-          true
-        ),
+        headers:
+          getAuthHeaders(
+            token,
+            true
+          ),
 
-      body:
-        JSON.stringify(data),
-    }
-  );
+        body:
+          JSON.stringify(data),
+      }
+    );
 
-  return parseResponse(
-    response
-  ) as Promise<{
-    message: string;
-  }>;
+  return parseResponse(response);
 }
 
 export async function deleteUser(
@@ -182,19 +179,16 @@ export async function deleteUser(
 ): Promise<{
   message: string;
 }> {
-  const response = await fetch(
-    `${API_URL}/${id}`,
-    {
-      method: "DELETE",
+  const response =
+    await fetch(
+      `${API_URL}/${id}`,
+      {
+        method: "DELETE",
 
-      headers:
-        getAuthHeaders(token),
-    }
-  );
+        headers:
+          getAuthHeaders(token),
+      }
+    );
 
-  return parseResponse(
-    response
-  ) as Promise<{
-    message: string;
-  }>;
+  return parseResponse(response);
 }

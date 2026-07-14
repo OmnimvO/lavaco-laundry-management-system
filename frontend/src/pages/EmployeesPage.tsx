@@ -1,13 +1,23 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
 
 import {
+  FaCashRegister,
+  FaCheckCircle,
   FaEdit,
+  FaMotorcycle,
+  FaSearch,
+  FaSyncAlt,
+  FaTimesCircle,
   FaTrash,
+  FaTshirt,
   FaUndoAlt,
+  FaUserPlus,
+  FaUsers,
 } from "react-icons/fa";
 
 import {
@@ -28,6 +38,10 @@ import Modal from "../components/Modal";
 import EmployeeForm from "../components/EmployeeForm";
 import Toast from "../components/Toast";
 
+import {
+  useAuth,
+} from "../hooks/useAuth";
+
 function getLabel(
   options: {
     value: string;
@@ -44,7 +58,13 @@ function getLabel(
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString(
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Invalid date";
+  }
+
+  return date.toLocaleDateString(
     "en-PH",
     {
       year: "numeric",
@@ -57,15 +77,66 @@ function formatDate(value: string) {
 function getFullName(
   employee: Employee
 ) {
-  return `${employee.firstName} ${employee.lastName}`;
+  return `${employee.firstName} ${employee.lastName}`.trim();
+}
+
+function getEmployeeInitial(
+  employee: Employee
+) {
+  const firstName =
+    employee.firstName?.trim();
+
+  const lastName =
+    employee.lastName?.trim();
+
+  if (firstName && lastName) {
+    return `${firstName.charAt(
+      0
+    )}${lastName.charAt(0)}`.toUpperCase();
+  }
+
+  return (
+    firstName?.charAt(0) ??
+    lastName?.charAt(0) ??
+    "?"
+  ).toUpperCase();
+}
+
+function formatPhoneNumber(
+  value?: string | null
+) {
+  if (!value) {
+    return "Not provided";
+  }
+
+  const digits =
+    value.replace(/\D/g, "");
+
+  if (digits.length === 11) {
+    return `${digits.slice(
+      0,
+      4
+    )} ${digits.slice(
+      4,
+      7
+    )} ${digits.slice(7)}`;
+  }
+
+  return value;
 }
 
 function EmployeesPage() {
+  const {
+    token,
+  } = useAuth();
   const [employees, setEmployees] =
     useState<Employee[]>([]);
 
   const [loading, setLoading] =
     useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
 
   const [
     isCreateModalOpen,
@@ -90,6 +161,14 @@ function EmployeesPage() {
     setStatusFilter,
   ] = useState("ALL");
 
+  const [sortOption, setSortOption] =
+    useState<
+      | "NAME_AZ"
+      | "NAME_ZA"
+      | "NEWEST_HIRED"
+      | "OLDEST_HIRED"
+    >("NAME_AZ");
+
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error";
@@ -105,56 +184,109 @@ function EmployeesPage() {
       type,
     });
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       setToast(null);
     }, 3000);
   }
 
-  async function loadEmployees() {
-    try {
-      setLoading(true);
+  const loadEmployees = useCallback(
+    async (
+      manualRefresh = false
+    ) => {
+      try {
+        if (manualRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
 
-      const data =
-        await getEmployees();
+        if (
+          typeof token !== "string" ||
+          !token.trim()
+        ) {
+          throw new Error(
+            "Your session is unavailable. Please log in again."
+          );
+        }
 
-      setEmployees(
-        Array.isArray(data)
-          ? data
-          : []
-      );
-    } catch (error) {
-      console.error(
-        "Failed to load employees:",
-        error
-      );
+        const data =
+          await getEmployees(
+            token
+          );
 
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "Failed to load employees.",
-        "error"
-      );
+        setEmployees(
+          Array.isArray(data)
+            ? data
+            : []
+        );
+      } catch (error) {
+        console.error(
+          "Failed to load employees:",
+          error
+        );
 
-      setEmployees([]);
-    } finally {
-      setLoading(false);
-    }
-  }
+        showToast(
+          error instanceof Error
+            ? error.message
+            : "Failed to load employees.",
+          "error"
+        );
+
+        if (!manualRefresh) {
+          setEmployees([]);
+        }
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [token]
+  );
 
   useEffect(() => {
-    loadEmployees();
-  }, []);
+    void loadEmployees(false);
+  }, [loadEmployees]);
+
+  function openCreateModal() {
+    setSelectedEmployee(null);
+    setIsCreateModalOpen(true);
+  }
+
+  function closeEmployeeModal() {
+    setIsCreateModalOpen(false);
+    setSelectedEmployee(null);
+  }
 
   async function handleCreateEmployee(
     data: Parameters<
       typeof createEmployee
     >[0]
   ) {
-    try {
-      await createEmployee(data);
-      await loadEmployees();
+    if (
+      typeof token !== "string" ||
+      !token.trim()
+    ) {
+      const error =
+        new Error(
+          "Your session is unavailable. Please log in again."
+        );
 
-      setIsCreateModalOpen(false);
+      showToast(
+        error.message,
+        "error"
+      );
+
+      throw error;
+    }
+
+    try {
+      await createEmployee(
+        data,
+        token
+      );
+      await loadEmployees(false);
+
+      closeEmployeeModal();
 
       showToast(
         "Employee added successfully!"
@@ -168,6 +300,8 @@ function EmployeesPage() {
           : "Failed to add employee.",
         "error"
       );
+
+      throw error;
     }
   }
 
@@ -180,15 +314,33 @@ function EmployeesPage() {
       return;
     }
 
+    if (
+      typeof token !== "string" ||
+      !token.trim()
+    ) {
+      const error =
+        new Error(
+          "Your session is unavailable. Please log in again."
+        );
+
+      showToast(
+        error.message,
+        "error"
+      );
+
+      throw error;
+    }
+
     try {
       await updateEmployee(
         selectedEmployee.id,
-        data
+        data,
+        token
       );
 
-      await loadEmployees();
+      await loadEmployees(false);
 
-      setSelectedEmployee(null);
+      closeEmployeeModal();
 
       showToast(
         "Employee updated successfully!"
@@ -202,24 +354,50 @@ function EmployeesPage() {
           : "Failed to update employee.",
         "error"
       );
+
+      throw error;
     }
   }
 
   async function handleDeleteEmployee(
     id: number
   ) {
+    const employee =
+      employees.find(
+        (item) => item.id === id
+      );
+
     const confirmed =
       window.confirm(
-        "Are you sure you want to delete this employee?"
+        `Are you sure you want to delete ${
+          employee
+            ? getFullName(employee)
+            : "this employee"
+        }?`
       );
 
     if (!confirmed) {
       return;
     }
 
+    if (
+      typeof token !== "string" ||
+      !token.trim()
+    ) {
+      showToast(
+        "Your session is unavailable. Please log in again.",
+        "error"
+      );
+
+      return;
+    }
+
     try {
-      await deleteEmployee(id);
-      await loadEmployees();
+      await deleteEmployee(
+        id,
+        token
+      );
+      await loadEmployees(false);
 
       showToast(
         "Employee deleted successfully!"
@@ -236,56 +414,112 @@ function EmployeesPage() {
     }
   }
 
-  const filteredEmployees =
+  const displayedEmployees =
     useMemo(() => {
       const normalizedSearch =
         searchTerm
           .trim()
           .toLowerCase();
 
-      return employees.filter(
-        (employee) => {
-          const fullName =
-            getFullName(
-              employee
+      const filtered =
+        employees.filter(
+          (employee) => {
+            const fullName =
+              getFullName(
+                employee
+              ).toLowerCase();
+
+            const phone = String(
+              employee.phone ?? ""
             ).toLowerCase();
 
-          const phone = String(
-            employee.phone ?? ""
-          ).toLowerCase();
-
-          const positionLabel =
-            getLabel(
-              EMPLOYEE_POSITIONS,
-              employee.position
+            const address = String(
+              employee.address ?? ""
             ).toLowerCase();
 
-          const matchesSearch =
-            normalizedSearch === "" ||
-            fullName.includes(
-              normalizedSearch
-            ) ||
-            phone.includes(
-              normalizedSearch
-            ) ||
-            positionLabel.includes(
-              normalizedSearch
+            const positionLabel =
+              getLabel(
+                EMPLOYEE_POSITIONS,
+                employee.position
+              ).toLowerCase();
+
+            const matchesSearch =
+              normalizedSearch === "" ||
+              fullName.includes(
+                normalizedSearch
+              ) ||
+              phone.includes(
+                normalizedSearch
+              ) ||
+              address.includes(
+                normalizedSearch
+              ) ||
+              positionLabel.includes(
+                normalizedSearch
+              );
+
+            const matchesPosition =
+              positionFilter === "ALL" ||
+              employee.position ===
+                positionFilter;
+
+            const matchesStatus =
+              statusFilter === "ALL" ||
+              employee.status ===
+                statusFilter;
+
+            return (
+              matchesSearch &&
+              matchesPosition &&
+              matchesStatus
             );
+          }
+        );
 
-          const matchesPosition =
-            positionFilter === "ALL" ||
-            employee.position ===
-              positionFilter;
+      return [...filtered].sort(
+        (first, second) => {
+          if (
+            sortOption === "NAME_ZA"
+          ) {
+            return getFullName(
+              second
+            ).localeCompare(
+              getFullName(first)
+            );
+          }
 
-          const matchesStatus =
-            statusFilter === "ALL" ||
-            employee.status ===
-              statusFilter;
+          if (
+            sortOption ===
+            "NEWEST_HIRED"
+          ) {
+            return (
+              new Date(
+                second.dateHired
+              ).getTime() -
+              new Date(
+                first.dateHired
+              ).getTime()
+            );
+          }
 
-          return (
-            matchesSearch &&
-            matchesPosition &&
-            matchesStatus
+          if (
+            sortOption ===
+            "OLDEST_HIRED"
+          ) {
+            return (
+              new Date(
+                first.dateHired
+              ).getTime() -
+              new Date(
+                second.dateHired
+              ).getTime()
+            );
+          }
+
+          return getFullName(
+            first
+          ).localeCompare(
+            getFullName(second)
           );
         }
       );
@@ -294,45 +528,73 @@ function EmployeesPage() {
       searchTerm,
       positionFilter,
       statusFilter,
+      sortOption,
     ]);
 
-  const totalEmployees =
-    employees.length;
+  const employeeSummary =
+    useMemo(() => {
+      return {
+        total: employees.length,
 
-  const activeEmployees =
-    employees.filter(
-      (employee) =>
-        employee.status === "ACTIVE"
-    ).length;
+        active: employees.filter(
+          (employee) =>
+            employee.status ===
+            "ACTIVE"
+        ).length,
 
-  const inactiveEmployees =
-    employees.filter(
-      (employee) =>
-        employee.status === "INACTIVE"
-    ).length;
+        inactive: employees.filter(
+          (employee) =>
+            employee.status ===
+            "INACTIVE"
+        ).length,
 
-  const cashiers =
-    employees.filter(
-      (employee) =>
-        employee.position === "CASHIER"
-    ).length;
+        cashiers: employees.filter(
+          (employee) =>
+            employee.position ===
+            "CASHIER"
+        ).length,
 
-  const laundryStaff =
-    employees.filter(
-      (employee) =>
-        employee.position ===
-        "LAUNDRY_STAFF"
-    ).length;
+        laundryStaff:
+          employees.filter(
+            (employee) =>
+              employee.position ===
+              "LAUNDRY_STAFF"
+          ).length,
 
-  const deliveryStaff =
-    employees.filter(
-      (employee) =>
-        employee.position ===
-        "DELIVERY_STAFF"
-    ).length;
+        deliveryStaff:
+          employees.filter(
+            (employee) =>
+              employee.position ===
+              "DELIVERY_STAFF"
+          ).length,
+      };
+    }, [employees]);
+
+  function clearFilters() {
+    setSearchTerm("");
+    setPositionFilter("ALL");
+    setStatusFilter("ALL");
+    setSortOption("NAME_AZ");
+  }
+
+  const hasActiveFilters =
+    searchTerm.trim() !== "" ||
+    positionFilter !== "ALL" ||
+    statusFilter !== "ALL" ||
+    sortOption !== "NAME_AZ";
 
   if (loading) {
-    return <p>Loading employees...</p>;
+    return (
+      <section className="employees-page">
+        <div className="dashboard-loading">
+          <FaSyncAlt className="dashboard-spin" />
+
+          <span>
+            Loading employees...
+          </span>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -347,56 +609,109 @@ function EmployeesPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          className="primary-button"
-          onClick={() => {
-            setSelectedEmployee(null);
-            setIsCreateModalOpen(true);
-          }}
-        >
-          + Add Employee
-        </button>
+        <div className="employees-header-actions">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() =>
+              void loadEmployees(true)
+            }
+            disabled={refreshing}
+          >
+            <FaSyncAlt
+              className={
+                refreshing
+                  ? "dashboard-spin"
+                  : ""
+              }
+            />
+
+            {refreshing
+              ? "Refreshing..."
+              : "Refresh"}
+          </button>
+
+          <button
+            type="button"
+            className="primary-button"
+            onClick={openCreateModal}
+          >
+            <FaUserPlus />
+            Add Employee
+          </button>
+        </div>
       </div>
 
       <div className="employees-summary-grid">
         <article className="employees-summary-card">
-          <span>Total Employees</span>
+          <span>
+            <FaUsers />
+            Total Employees
+          </span>
+
           <strong>
-            {totalEmployees}
+            {employeeSummary.total}
           </strong>
         </article>
 
         <article className="employees-summary-card">
-          <span>Active</span>
+          <span>
+            <FaCheckCircle />
+            Active
+          </span>
+
           <strong>
-            {activeEmployees}
+            {employeeSummary.active}
           </strong>
         </article>
 
         <article className="employees-summary-card">
-          <span>Inactive</span>
+          <span>
+            <FaTimesCircle />
+            Inactive
+          </span>
+
           <strong>
-            {inactiveEmployees}
+            {employeeSummary.inactive}
           </strong>
         </article>
 
         <article className="employees-summary-card">
-          <span>Cashiers</span>
-          <strong>{cashiers}</strong>
-        </article>
+          <span>
+            <FaCashRegister />
+            Cashiers
+          </span>
 
-        <article className="employees-summary-card">
-          <span>Laundry Staff</span>
           <strong>
-            {laundryStaff}
+            {employeeSummary.cashiers}
           </strong>
         </article>
 
         <article className="employees-summary-card">
-          <span>Delivery Staff</span>
+          <span>
+            <FaTshirt />
+            Laundry Staff
+          </span>
+
           <strong>
-            {deliveryStaff}
+            {
+              employeeSummary
+                .laundryStaff
+            }
+          </strong>
+        </article>
+
+        <article className="employees-summary-card">
+          <span>
+            <FaMotorcycle />
+            Delivery Staff
+          </span>
+
+          <strong>
+            {
+              employeeSummary
+                .deliveryStaff
+            }
           </strong>
         </article>
       </div>
@@ -407,17 +722,21 @@ function EmployeesPage() {
             Search Employees
           </label>
 
-          <input
-            id="employeeSearch"
-            type="search"
-            value={searchTerm}
-            onChange={(event) =>
-              setSearchTerm(
-                event.target.value
-              )
-            }
-            placeholder="Name, phone, or position"
-          />
+          <div className="employees-search-input">
+            <FaSearch />
+
+            <input
+              id="employeeSearch"
+              type="search"
+              value={searchTerm}
+              onChange={(event) =>
+                setSearchTerm(
+                  event.target.value
+                )
+              }
+              placeholder="Name, phone, address, or position"
+            />
+          </div>
         </div>
 
         <div className="employees-filter">
@@ -482,39 +801,99 @@ function EmployeesPage() {
           </select>
         </div>
 
-        <button
-          type="button"
-          className="icon-button reset-filter-button"
-          title="Reset Filters"
-          aria-label="Reset Filters"
-          onClick={() => {
-            setSearchTerm("");
-            setPositionFilter("ALL");
-            setStatusFilter("ALL");
-          }}
-        >
-          <FaUndoAlt />
-        </button>
+        <div className="employees-filter">
+          <label htmlFor="employeeSort">
+            Sort By
+          </label>
+
+          <div className="sort-actions">
+            <select
+              id="employeeSort"
+              value={sortOption}
+              onChange={(event) =>
+                setSortOption(
+                  event.target
+                    .value as typeof sortOption
+                )
+              }
+            >
+              <option value="NAME_AZ">
+                Name A–Z
+              </option>
+
+              <option value="NAME_ZA">
+                Name Z–A
+              </option>
+
+              <option value="NEWEST_HIRED">
+                Newest Hired
+              </option>
+
+              <option value="OLDEST_HIRED">
+                Oldest Hired
+              </option>
+            </select>
+
+            <button
+              type="button"
+              className="icon-button reset-filter-button"
+              title="Reset Filters"
+              aria-label="Reset Filters"
+              onClick={clearFilters}
+              disabled={
+                !hasActiveFilters
+              }
+            >
+              <FaUndoAlt />
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="employees-result-summary">
-        Showing{" "}
-        <strong>
-          {filteredEmployees.length}
-        </strong>{" "}
-        of{" "}
-        <strong>
-          {employees.length}
-        </strong>{" "}
-        employees
+        <span>
+          Showing{" "}
+          <strong>
+            {displayedEmployees.length}
+          </strong>{" "}
+          of{" "}
+          <strong>
+            {employees.length}
+          </strong>{" "}
+          employees
+        </span>
       </div>
 
-      {filteredEmployees.length === 0 ? (
-        <p>
-          {employees.length === 0
-            ? "No employees yet."
-            : "No employees match the current filters."}
-        </p>
+      {displayedEmployees.length ===
+      0 ? (
+        <div className="dashboard-empty-state">
+          <div className="dashboard-empty-icon">
+            <FaUserPlus />
+          </div>
+
+          <strong>
+            {employees.length === 0
+              ? "No employees yet"
+              : "No matching employees"}
+          </strong>
+
+          <p>
+            {employees.length === 0
+              ? "Add the first employee to begin managing staff records."
+              : "Try changing or clearing the current employee filters."}
+          </p>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              className="clear-filter-button"
+              onClick={clearFilters}
+            >
+              <FaUndoAlt />
+              Clear Filters
+            </button>
+          )}
+        </div>
       ) : (
         <div className="table-wrapper">
           <table className="customer-table employee-table">
@@ -530,21 +909,38 @@ function EmployeesPage() {
             </thead>
 
             <tbody>
-              {filteredEmployees.map(
+              {displayedEmployees.map(
                 (employee) => (
                   <tr key={employee.id}>
                     <td>
-                      <strong>
-                        {getFullName(
-                          employee
-                        )}
-                      </strong>
+                      <div className="employee-name-cell">
+                        <span
+                          className="employee-avatar"
+                          aria-hidden="true"
+                        >
+                          {getEmployeeInitial(
+                            employee
+                          )}
+                        </span>
 
-                      {employee.address && (
-                        <small className="table-subtext">
-                          {employee.address}
-                        </small>
-                      )}
+                        <div>
+                          <strong>
+                            {getFullName(
+                              employee
+                            )}
+                          </strong>
+
+                          <small
+                            title={
+                              employee.address ||
+                              "No address provided"
+                            }
+                          >
+                            {employee.address ||
+                              `Employee #${employee.id}`}
+                          </small>
+                        </div>
+                      </div>
                     </td>
 
                     <td>
@@ -554,9 +950,10 @@ function EmployeesPage() {
                       )}
                     </td>
 
-                    <td>
-                      {employee.phone ||
-                        "Not provided"}
+                    <td className="employee-phone-cell">
+                      {formatPhoneNumber(
+                        employee.phone
+                      )}
                     </td>
 
                     <td>
@@ -602,7 +999,7 @@ function EmployeesPage() {
                             employee
                           )}`}
                           onClick={() =>
-                            handleDeleteEmployee(
+                            void handleDeleteEmployee(
                               employee.id
                             )
                           }
@@ -622,13 +1019,14 @@ function EmployeesPage() {
       {isCreateModalOpen && (
         <Modal
           title="Add Employee"
-          onClose={() =>
-            setIsCreateModalOpen(false)
-          }
+          onClose={closeEmployeeModal}
         >
           <EmployeeForm
             onSubmit={
               handleCreateEmployee
+            }
+            onCancel={
+              closeEmployeeModal
             }
           />
         </Modal>
@@ -637,9 +1035,7 @@ function EmployeesPage() {
       {selectedEmployee && (
         <Modal
           title="Edit Employee"
-          onClose={() =>
-            setSelectedEmployee(null)
-          }
+          onClose={closeEmployeeModal}
         >
           <EmployeeForm
             selectedEmployee={
@@ -647,6 +1043,9 @@ function EmployeesPage() {
             }
             onSubmit={
               handleUpdateEmployee
+            }
+            onCancel={
+              closeEmployeeModal
             }
           />
         </Modal>
