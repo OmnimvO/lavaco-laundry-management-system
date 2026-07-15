@@ -542,7 +542,9 @@ function buildCancellationData(
     totalPrice: number;
   },
 
-  cancellationReason: string,
+  cancellationReason:
+    | string
+    | null,
   cancelledBy: string
 ) {
   const paid =
@@ -555,7 +557,10 @@ function buildCancellationData(
     status:
       OrderStatus.CANCELLED,
 
-    cancellationReason,
+    cancellationReason:
+      cancellationReason ??
+      "Order cancelled.",
+
     cancelledAt: now,
     cancelledBy,
 
@@ -614,22 +619,18 @@ async function handleOperationalTransition(
     );
   }
 
-  if (
-    nextStatus ===
-      OrderStatus.CANCELLED
-  ) {
-    await tankCycleService.reverseOrderLoads(
-      existingOrder.id,
-      performedBy,
-      "Order was cancelled."
-    );
-
-    await inventoryService.reverseOrderSupplies(
-      existingOrder.id,
-      performedBy,
-      "Supplies returned because the order was cancelled."
-    );
-  }
+  /*
+   * Once washing has started, detergent,
+   * softener, water-treatment capacity,
+   * and machine usage are considered
+   * consumed. Cancelling the order does
+   * not restore inventory or reverse tank
+   * loads.
+   *
+   * Cancelling while still RECEIVED has
+   * no inventory or tank effect because
+   * nothing has been deducted yet.
+   */
 }
 
 export const orderController = {
@@ -1255,19 +1256,6 @@ export const orderController = {
             .cancellationReason
         );
 
-      if (
-        nextStatus ===
-          OrderStatus.CANCELLED &&
-        existingOrder.status !==
-          OrderStatus.CANCELLED &&
-        !cancellationReason
-      ) {
-        return res.status(400).json({
-          message:
-            "Cancellation reason is required.",
-        });
-      }
-
       const settings =
         await orderService.getShopSettings();
 
@@ -1298,7 +1286,7 @@ export const orderController = {
           OrderStatus.CANCELLED
           ? buildCancellationData(
               existingOrder,
-              cancellationReason!,
+              cancellationReason,
               performedBy
             )
           : {};
@@ -1446,7 +1434,7 @@ export const orderController = {
 
         description =
           `Order ${order.orderNumber} was cancelled and archived. ` +
-          `Its payment was excluded from revenue.`;
+          `Its payment was excluded from revenue. Already-consumed supplies and tank loads were not restored.`;
       } else if (paymentChanged) {
         auditAction =
           AuditAction.PAYMENT_CHANGE;
@@ -1638,23 +1626,12 @@ export const orderController = {
             .cancellationReason
         );
 
-      if (
-        status ===
-          OrderStatus.CANCELLED &&
-        !cancellationReason
-      ) {
-        return res.status(400).json({
-          message:
-            "Cancellation reason is required.",
-        });
-      }
-
       const additionalData =
         status ===
         OrderStatus.CANCELLED
           ? buildCancellationData(
               existingOrder,
-              cancellationReason!,
+              cancellationReason,
               performedBy
             )
           : {};
@@ -1690,7 +1667,7 @@ export const orderController = {
           order.orderNumber,
 
         description: cancelled
-          ? `Order ${order.orderNumber} was cancelled and archived. Its payment was excluded from revenue.`
+          ? `Order ${order.orderNumber} was cancelled and archived. Its payment was excluded from revenue. Already-consumed supplies and tank loads were not restored.`
           : `Order status for ${order.orderNumber} changed from ${existingOrder.status} to ${order.status}.`,
 
         performedBy,

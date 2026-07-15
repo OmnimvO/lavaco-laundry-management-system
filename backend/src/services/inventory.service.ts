@@ -44,6 +44,11 @@ type OrderSupplyUsage = {
   performedBy: string;
 };
 
+type SupplyCategoryTarget = {
+  category: InventoryCategory;
+  quantity: number;
+};
+
 async function findActiveItemByCategory(
   category: InventoryCategory
 ) {
@@ -94,6 +99,68 @@ async function getExistingOrderReversal(
       createdAt: "desc",
     },
   });
+}
+
+async function getOrderSupplyMovements(
+  orderId: number,
+  category: InventoryCategory
+) {
+  return prisma.inventoryMovement.findMany({
+    where: {
+      orderId,
+      inventoryItem: {
+        category,
+      },
+      movementType: {
+        in: [
+          InventoryMovementType.ORDER_USAGE,
+          InventoryMovementType.REVERSAL,
+        ],
+      },
+    },
+    include: {
+      inventoryItem: true,
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+  });
+}
+
+function getNetUsedQuantity(
+  movements: Awaited<
+    ReturnType<
+      typeof getOrderSupplyMovements
+    >
+  >
+) {
+  return movements.reduce(
+    (total, movement) =>
+      movement.movementType ===
+      InventoryMovementType.ORDER_USAGE
+        ? total + movement.quantity
+        : total - movement.quantity,
+    0
+  );
+}
+
+function getPreferredInventoryItem(
+  movements: Awaited<
+    ReturnType<
+      typeof getOrderSupplyMovements
+    >
+  >
+) {
+  return (
+    [...movements]
+      .reverse()
+      .find(
+        (movement) =>
+          movement.movementType ===
+          InventoryMovementType.ORDER_USAGE
+      )
+      ?.inventoryItem ?? null
+  );
 }
 
 export const inventoryService = {
@@ -397,19 +464,10 @@ export const inventoryService = {
     );
   },
 
-  deductOrderSupplies: async (
+  syncOrderSupplies: async (
     data: OrderSupplyUsage
   ) => {
-    const results: {
-      category: InventoryCategory;
-      itemId: number;
-      itemName: string;
-      deducted: number;
-      remaining: number;
-      skipped: boolean;
-    }[] = [];
-
-    const usages = [
+    const targets: SupplyCategoryTarget[] = [
       {
         category:
           InventoryCategory.DETERGENT,
@@ -424,95 +482,263 @@ export const inventoryService = {
       },
     ];
 
-    for (const usage of usages) {
-      if (usage.quantity <= 0) {
-        continue;
-      }
+    const results: {
+      category: InventoryCategory;
+      itemId: number | null;
+      itemName: string | null;
+      previousUsed: number;
+      requestedUsed: number;
+      deducted: number;
+      restored: number;
+      remaining: number | null;
+    }[] = [];
 
-      const item =
-        await findActiveItemByCategory(
-          usage.category
+    for (const target of targets) {
+      const requestedUsed =
+        Math.max(
+          0,
+          Math.trunc(
+            target.quantity
+          )
         );
 
-      if (!item) {
-        throw new Error(
-          usage.category ===
-          InventoryCategory.DETERGENT
-            ? "No active detergent inventory item is configured."
-            : "No active fabric softener inventory item is configured."
-        );
-      }
-
-      const existingUsage =
-        await getExistingOrderUsage(
+      const movements =
+        await getOrderSupplyMovements(
           data.orderId,
-          item.id
+          target.category
         );
 
-      const existingReversal =
-        await getExistingOrderReversal(
-          data.orderId,
-          item.id
+      const previousUsed =
+        Math.max(
+          0,
+          getNetUsedQuantity(
+            movements
+          )
         );
 
-      if (
-        existingUsage &&
-        !existingReversal
-      ) {
+      const difference =
+        requestedUsed -
+        previousUsed;
+
+      if (difference === 0) {
+        const preferredItem =
+          getPreferredInventoryItem(
+            movements
+          );
+
         results.push({
           category:
-            usage.category,
+            target.category,
           itemId:
-            item.id,
+            preferredItem?.id ??
+            null,
           itemName:
-            item.name,
-          deducted:
-            existingUsage.quantity,
+            preferredItem?.name ??
+            null,
+          previousUsed,
+          requestedUsed,
+          deducted: 0,
+          restored: 0,
           remaining:
-            item.quantity,
-          skipped: true,
+            preferredItem?.quantity ??
+            null,
         });
 
         continue;
       }
 
-      const result =
-        await inventoryService.applyStockMovement(
-          item.id,
-          {
-            quantity:
-              usage.quantity,
+      if (difference > 0) {
+        const preferredItem =
+          getPreferredInventoryItem(
+            movements
+          );
 
-            movementType:
-              InventoryMovementType.ORDER_USAGE,
+        const item =
+          preferredItem &&
+          !preferredItem.isArchived &&
+          preferredItem.isActive
+            ? preferredItem
+            : await findActiveItemByCategory(
+                target.category
+              );
 
-            reason:
-              `Automatic usage for order #${data.orderId}`,
+        if (!item) {
+          throw new Error(
+            target.category ===
+            InventoryCategory.DETERGENT
+              ? "No active detergent inventory item is configured."
+              : "No active fabric softener inventory item is configured."
+          );
+        }
 
-            performedBy:
-              data.performedBy,
+        const result =
+          await inventoryService.applyStockMovement(
+            item.id,
+            {
+              quantity:
+                difference,
+              movementType:
+                InventoryMovementType.ORDER_USAGE,
+              reason:
+                `Supply usage synchronized for order #${data.orderId}`,
+              performedBy:
+                data.performedBy,
+              orderId:
+                data.orderId,
+            }
+          );
 
-            orderId:
-              data.orderId,
-          }
+        results.push({
+          category:
+            target.category,
+          itemId:
+            item.id,
+          itemName:
+            item.name,
+          previousUsed,
+          requestedUsed,
+          deducted:
+            difference,
+          restored: 0,
+          remaining:
+            result.item.quantity,
+        });
+
+        continue;
+      }
+
+      let quantityToRestore =
+        Math.abs(
+          difference
         );
+
+      let restored = 0;
+      let lastRemaining:
+        number | null = null;
+      let lastItemId:
+        number | null = null;
+      let lastItemName:
+        string | null = null;
+
+      const usageByItem =
+        new Map<
+          number,
+          {
+            item:
+              (typeof movements)[number]["inventoryItem"];
+            netUsed: number;
+          }
+        >();
+
+      for (const movement of movements) {
+        const current =
+          usageByItem.get(
+            movement.inventoryItemId
+          ) ?? {
+            item:
+              movement.inventoryItem,
+            netUsed: 0,
+          };
+
+        current.netUsed +=
+          movement.movementType ===
+          InventoryMovementType.ORDER_USAGE
+            ? movement.quantity
+            : -movement.quantity;
+
+        usageByItem.set(
+          movement.inventoryItemId,
+          current
+        );
+      }
+
+      for (
+        const entry of
+        [...usageByItem.values()]
+          .filter(
+            (value) =>
+              value.netUsed > 0
+          )
+          .reverse()
+      ) {
+        if (
+          quantityToRestore <= 0
+        ) {
+          break;
+        }
+
+        const restoreQuantity =
+          Math.min(
+            quantityToRestore,
+            entry.netUsed
+          );
+
+        const result =
+          await inventoryService.applyStockMovement(
+            entry.item.id,
+            {
+              quantity:
+                restoreQuantity,
+              movementType:
+                InventoryMovementType.REVERSAL,
+              reason:
+                `Supply usage adjusted for order #${data.orderId}`,
+              performedBy:
+                data.performedBy,
+              orderId:
+                data.orderId,
+            }
+          );
+
+        restored +=
+          restoreQuantity;
+
+        quantityToRestore -=
+          restoreQuantity;
+
+        lastRemaining =
+          result.item.quantity;
+
+        lastItemId =
+          result.item.id;
+
+        lastItemName =
+          result.item.name;
+      }
+
+      if (
+        quantityToRestore > 0
+      ) {
+        throw new Error(
+          "Unable to restore the complete order supply adjustment."
+        );
+      }
 
       results.push({
         category:
-          usage.category,
+          target.category,
         itemId:
-          item.id,
+          lastItemId,
         itemName:
-          item.name,
-        deducted:
-          usage.quantity,
+          lastItemName,
+        previousUsed,
+        requestedUsed,
+        deducted: 0,
+        restored,
         remaining:
-          result.item.quantity,
-        skipped: false,
+          lastRemaining,
       });
     }
 
     return results;
+  },
+
+  deductOrderSupplies: async (
+    data: OrderSupplyUsage
+  ) => {
+    return inventoryService.syncOrderSupplies(
+      data
+    );
   },
 
   reverseOrderSupplies: async (
@@ -520,86 +746,191 @@ export const inventoryService = {
     performedBy: string,
     reason: string
   ) => {
-    const usages =
-      await prisma.inventoryMovement.findMany({
-        where: {
-          orderId,
-          movementType:
-            InventoryMovementType.ORDER_USAGE,
-        },
+    return prisma.$transaction(
+      async (transaction) => {
+        const movements =
+          await transaction.inventoryMovement.findMany({
+            where: {
+              orderId,
 
-        include: {
-          inventoryItem: true,
-        },
+              movementType: {
+                in: [
+                  InventoryMovementType.ORDER_USAGE,
+                  InventoryMovementType.REVERSAL,
+                ],
+              },
+            },
 
-        orderBy: {
-          createdAt: "asc",
-        },
-      });
+            include: {
+              inventoryItem: true,
+            },
 
-    const results: {
-      itemId: number;
-      itemName: string;
-      restored: number;
-      remaining: number;
-      skipped: boolean;
-    }[] = [];
+            orderBy: {
+              createdAt: "asc",
+            },
+          });
 
-    for (const usage of usages) {
-      const existingReversal =
-        await getExistingOrderReversal(
-          orderId,
-          usage.inventoryItemId
-        );
+        const usageByItem =
+          new Map<
+            number,
+            {
+              item:
+                (typeof movements)[number]["inventoryItem"];
+              netUsed: number;
+            }
+          >();
 
-      if (existingReversal) {
-        results.push({
-          itemId:
-            usage.inventoryItemId,
-          itemName:
-            usage.inventoryItem.name,
-          restored:
-            existingReversal.quantity,
-          remaining:
-            usage.inventoryItem.quantity,
-          skipped: true,
-        });
+        for (const movement of movements) {
+          const current =
+            usageByItem.get(
+              movement.inventoryItemId
+            ) ?? {
+              item:
+                movement.inventoryItem,
+              netUsed: 0,
+            };
 
-        continue;
-      }
-
-      const result =
-        await inventoryService.applyStockMovement(
-          usage.inventoryItemId,
-          {
-            quantity:
-              usage.quantity,
-
-            movementType:
-              InventoryMovementType.REVERSAL,
-
-            reason,
-
-            performedBy,
-
-            orderId,
+          if (
+            movement.movementType ===
+            InventoryMovementType.ORDER_USAGE
+          ) {
+            current.netUsed +=
+              movement.quantity;
+          } else {
+            current.netUsed -=
+              movement.quantity;
           }
-        );
 
-      results.push({
-        itemId:
-          result.item.id,
-        itemName:
-          result.item.name,
-        restored:
-          usage.quantity,
-        remaining:
-          result.item.quantity,
-        skipped: false,
-      });
-    }
+          usageByItem.set(
+            movement.inventoryItemId,
+            current
+          );
+        }
 
-    return results;
+        const results: {
+          itemId: number;
+          itemName: string;
+          restored: number;
+          remaining: number;
+          skipped: boolean;
+        }[] = [];
+
+        for (
+          const entry of
+          usageByItem.values()
+        ) {
+          const quantityToRestore =
+            Math.max(
+              0,
+              entry.netUsed
+            );
+
+          if (
+            quantityToRestore === 0
+          ) {
+            results.push({
+              itemId:
+                entry.item.id,
+
+              itemName:
+                entry.item.name,
+
+              restored: 0,
+
+              remaining:
+                entry.item.quantity,
+
+              skipped: true,
+            });
+
+            continue;
+          }
+
+          /*
+           * Cancellation must return supplies to
+           * the exact item originally used. This
+           * deliberately does not require the item
+           * to remain active or unarchived.
+           */
+          const currentItem =
+            await transaction.inventoryItem.findUnique({
+              where: {
+                id:
+                  entry.item.id,
+              },
+            });
+
+          if (!currentItem) {
+            throw new Error(
+              `Inventory item ${entry.item.name} was not found while restoring cancelled-order supplies.`
+            );
+          }
+
+          const newQuantity =
+            currentItem.quantity +
+            quantityToRestore;
+
+          const updatedItem =
+            await transaction.inventoryItem.update({
+              where: {
+                id:
+                  currentItem.id,
+              },
+
+              data: {
+                quantity:
+                  newQuantity,
+              },
+            });
+
+          await transaction.inventoryMovement.create({
+            data: {
+              inventoryItemId:
+                currentItem.id,
+
+              movementType:
+                InventoryMovementType.REVERSAL,
+
+              quantity:
+                quantityToRestore,
+
+              previousQuantity:
+                currentItem.quantity,
+
+              newQuantity,
+
+              reason:
+                reason.trim() ||
+                "Order supplies were restored.",
+
+              performedBy:
+                performedBy.trim() ||
+                "System",
+
+              orderId,
+            },
+          });
+
+          results.push({
+            itemId:
+              updatedItem.id,
+
+            itemName:
+              updatedItem.name,
+
+            restored:
+              quantityToRestore,
+
+            remaining:
+              updatedItem.quantity,
+
+            skipped: false,
+          });
+        }
+
+        return results;
+      }
+    );
   },
 
   getLowStockItems: async () => {
