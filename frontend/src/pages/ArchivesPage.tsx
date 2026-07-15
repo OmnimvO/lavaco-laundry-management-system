@@ -26,10 +26,7 @@ import {
 
 import type {
   ArchiveEntityType,
-  ArchivedInventoryItem,
-  ArchivedOrder,
   ArchivedRecord,
-  ArchivedUser,
   ArchiveSummary,
 } from "../types/archive";
 

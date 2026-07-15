@@ -11,7 +11,6 @@ import {
   FaEdit,
   FaEye,
   FaFileAlt,
-  FaFilter,
   FaMoneyBillWave,
   FaPlusCircle,
   FaPrint,
@@ -19,7 +18,6 @@ import {
   FaSyncAlt,
   FaTrash,
   FaUndoAlt,
-  FaUser,
 } from "react-icons/fa";
 
 import { getAuditLogs } from "../api/auditLogApi";
