@@ -161,6 +161,9 @@ function OrderReceipt({
     order.status
   );
 
+  const isCancelled =
+    order.status === "CANCELLED";
+
   const loadLabel = formatLoadLabel(
     order.loadCount
   );
@@ -486,6 +489,24 @@ function OrderReceipt({
       </section>
 
       <div className="receipt-divider" />
+
+      {isCancelled && (
+        <section
+          className="receipt-cancelled-notice"
+        >
+          <h3>
+            ❌ CANCELLED
+          </h3>
+
+          <p>
+            This order has been cancelled.
+            This receipt is provided for
+            record purposes only and is
+            not valid for claiming
+            laundry.
+          </p>
+        </section>
+      )}
 
       <footer className="receipt-footer">
         <p>
