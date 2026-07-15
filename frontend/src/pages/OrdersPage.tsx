@@ -669,8 +669,10 @@ function OrdersPage({
               <FaFilter />
             </div>
 
-            <div>
-              <span>Dashboard filter applied</span>
+            <div className="dashboard-filter-banner-text">
+              <span>
+                Dashboard filter applied
+              </span>
 
               <strong>
                 {
@@ -692,11 +694,11 @@ function OrdersPage({
 
           <button
             type="button"
-            className="clear-filter-button"
+            className="clear-filter-button dashboard-filter-clear-button"
             onClick={clearAllFilters}
           >
             <FaTimes />
-            Show All Orders
+            <span>Show All Orders</span>
           </button>
         </div>
       )}

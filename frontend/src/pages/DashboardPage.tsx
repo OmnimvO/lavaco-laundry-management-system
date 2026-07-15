@@ -807,6 +807,7 @@ function DashboardPage({
           type="button"
           className="dashboard-summary-card dashboard-clickable-card"
           onClick={() => navigateTo("orders", "TODAY")}
+          aria-label={`View ${dashboardData.todayOrders.length} order${dashboardData.todayOrders.length === 1 ? "" : "s"} created today`}
         >
           <div className="dashboard-card-icon">
             <FaTshirt />
@@ -825,6 +826,7 @@ function DashboardPage({
           type="button"
           className="dashboard-summary-card dashboard-clickable-card"
           onClick={() => navigateTo("orders", "ACTIVE")}
+          aria-label={`View ${dashboardData.activeOrders.length} active order${dashboardData.activeOrders.length === 1 ? "" : "s"}`}
         >
           <div className="dashboard-card-icon">
             <FaClock />
@@ -843,6 +845,7 @@ function DashboardPage({
           type="button"
           className="dashboard-summary-card dashboard-clickable-card"
           onClick={() => navigateTo("orders", "READY")}
+          aria-label={`View ${dashboardData.readyOrders.length} order${dashboardData.readyOrders.length === 1 ? "" : "s"} ready for pickup or delivery`}
         >
           <div className="dashboard-card-icon">
             <FaClipboardCheck />
@@ -861,6 +864,7 @@ function DashboardPage({
           type="button"
           className="dashboard-summary-card dashboard-clickable-card"
           onClick={() => navigateTo("orders", "UNPAID")}
+          aria-label={`Review ${dashboardData.unpaidOrders.length} unpaid order${dashboardData.unpaidOrders.length === 1 ? "" : "s"}`}
         >
           <div className="dashboard-card-icon">
             <FaMoneyBillWave />

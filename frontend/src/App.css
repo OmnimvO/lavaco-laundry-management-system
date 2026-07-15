@@ -125,6 +125,9 @@ textarea {
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 900;
   background: white;
   padding: 20px 32px;
   border-bottom: 1px solid #c8e1ee;
@@ -10283,5 +10286,204 @@ body {
   .settings-tank-status > div:first-child {
     flex-direction: column;
     gap: 2px;
+  }
+}
+
+/* ======================================================
+   DASHBOARD-TO-ORDERS FILTER BANNER
+   ====================================================== */
+
+.dashboard-filter-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #b9dce9;
+  border-left: 4px solid var(--primary-600);
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      135deg,
+      #eef8fc,
+      #f9fdff
+    );
+  box-shadow:
+    0 4px 12px
+    rgba(20, 108, 148, 0.06);
+}
+
+.dashboard-filter-banner-content {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.dashboard-filter-banner-icon {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #dceff8;
+  color: var(--primary-700);
+  font-size: 16px;
+}
+
+.dashboard-filter-banner-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.dashboard-filter-banner-text > span {
+  display: block;
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-transform: uppercase;
+  letter-spacing: 0.035em;
+}
+
+.dashboard-filter-banner-text > strong {
+  display: block;
+  color: var(--primary-900);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.dashboard-filter-banner-text > small {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-medium);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.dashboard-filter-clear-button {
+  flex-shrink: 0;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 0;
+}
+
+.dashboard-filter-clear-button svg {
+  flex-shrink: 0;
+}
+
+.dashboard-filter-clear-button span {
+  white-space: nowrap;
+}
+
+/* Make dashboard cards clearly interactive. */
+.dashboard-summary-card.dashboard-clickable-card {
+  appearance: none;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.dashboard-summary-card.dashboard-clickable-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary-500);
+  box-shadow:
+    0 10px 22px
+    rgba(20, 108, 148, 0.14);
+}
+
+.dashboard-summary-card.dashboard-clickable-card:active {
+  transform: translateY(0);
+  box-shadow:
+    0 4px 10px
+    rgba(20, 108, 148, 0.1);
+}
+
+.dashboard-summary-card.dashboard-clickable-card:focus-visible {
+  outline: 3px solid
+    rgba(31, 143, 199, 0.28);
+  outline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+  .dashboard-filter-banner {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+    padding: 13px;
+  }
+
+  .dashboard-filter-clear-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .dashboard-filter-banner-content {
+    gap: 9px;
+  }
+
+  .dashboard-filter-banner-icon {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+  }
+
+  .dashboard-filter-banner-text > strong {
+    font-size: 15px;
+  }
+
+  .dashboard-filter-banner-text > small {
+    font-size: 11px;
+  }
+}
+
+/* ======================================================
+   FINAL STICKY APP BAR OVERRIDE
+   Keep this section at the end of App.css so later
+   app-bar rules cannot replace sticky positioning.
+   ====================================================== */
+
+html,
+body {
+  min-height: 100%;
+}
+
+.main-area {
+  overflow: visible;
+}
+
+.topbar {
+  position: sticky !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 900;
+  width: 100%;
+  flex-shrink: 0;
+  background: white;
+  box-shadow:
+    0 4px 14px
+    rgba(20, 108, 148, 0.12);
+}
+
+@media (max-width: 700px) {
+  .topbar {
+    position: sticky !important;
+    top: 0;
   }
 }
